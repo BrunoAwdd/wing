@@ -1,0 +1,11 @@
+{
+  "devDependencies": {
+    "office-addin-cli": "^2.0.3",
+    "office-addin-dev-certs": "^2.0.3",
+    "office-addin-manifest": "^2.0.3",
+    "office-addin-sso": "^3.0.4"
+  },
+  "dependencies": {
+    "inquirer": "^12.9.6"
+  }
+}
