@@ -1,3 +1,5 @@
+import logger from './logger';
+
 /**
  * Serviço de Telemetria (Stub)
  * 
@@ -6,5 +8,5 @@
  */
 
 export const track = (eventName: string, properties?: Record<string, any>) => {
-  console.log(`[TELEMETRY] Event: ${eventName}`, properties || "");
+  logger.info({ event: eventName, ...properties }, `Telemetry event: ${eventName}`);
 };
