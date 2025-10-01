@@ -29,7 +29,7 @@ function AppWithToaster() {
   return (
     <>
       <App dispatchToast={dispatchToast} toastId={toasterId} />
-      <Toaster toasterId={toasterId} />
+      <Toaster toasterId={toasterId} position="top-end" />
     </>
   );
 }
