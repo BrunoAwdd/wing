@@ -1,5 +1,5 @@
 import * as React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   makeStyles,
   tokens,
@@ -13,21 +13,34 @@ import DiffViewer from "./DiffViewer";
 import ActionButtonGroup from "./ActionButtonGroup";
 import CommandConsole from "./CommandConsole";
 import Rating from "./Rating";
+import SettingsPage from "./SettingsPage"; // Importar a nova página
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
-import { useWordInteraction } from "../hooks/useWordInteraction";
+import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
 import { useAIApi } from "../hooks/useAIApi";
 
-/* global Word, Office, process */
+/* global process */
 
 const useStyles = makeStyles({
   root: {
     display: "flex",
     flexDirection: "column",
     height: "100vh",
-    padding: "16px",
     boxSizing: "border-box",
     backgroundColor: tokens.colorNeutralBackground3,
+  },
+  mainView: { // Container para a visão principal
+    display: "flex",
+    flexDirection: "column",
+    flexGrow: 1,
+    overflowY: "hidden", // Evitar scroll duplo
+  },
+  content: { // Conteúdo principal que deve ter scroll
+    flexGrow: 1,
+    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
+    padding: "0 16px",
   },
   loading: {
     display: "flex",
@@ -47,18 +60,20 @@ interface AppProps {
 const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const styles = useStyles();
 
-  // Estados gerenciados pelo App (orquestrador)
-  const [command, setCommand] = useState("");
+  // Estado de navegação
+  const [view, setView] = useState<"main" | "settings">("main");
+
+  // Estados gerenciados pelo App
+  const [command, setCommand] = useState("fix");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showRating, setShowRating] = useState(false);
   const [tone, setTone] = useState("formal");
   const [language, setLanguage] = useState("inglês");
 
-  // Funções de utilidade
-  const addLog = (message: string, type: LogEntry["type"]) => {
-    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const addLog = useCallback((message: string, type: LogEntry["type"]) => {
+    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     setLogs((prevLogs) => [...prevLogs, { message, type, time }]);
-  };
+  }, []);
 
   const showFluentToast = (message: string, type: "info" | "success" | "error") => {
     dispatchToast(<Toast><ToastTitle>{message}</ToastTitle></Toast>, { intent: type, timeout: 3000, toastId });
@@ -74,19 +89,18 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setIsSuggestionAvailable,
     fetchSuggestion,
     lastCommand,
+    isLoading, // Obter o novo estado
   } = useAIApi({
-    licenseToken, isOnline, originalText, tone, language, addLog, showFluentToast
+    licenseToken, isOnline, originalText, tone, language, addLog, showFluentToast, setShowRating
   });
 
-  // Efeito para limpar a sugestão quando o texto original muda
   useEffect(() => {
-    setSuggestedText("");
+    setSuggestedText([]);
     setIsSuggestionAvailable(false);
   }, [originalText]);
 
-  // Funções de orquestração
   const handleAccept = async () => {
-    if (!suggestedText) return;
+    if (suggestedText.length === 0) return;
     track("suggestion_accepted", { command: lastCommand });
     await acceptSuggestion(suggestedText);
     setShowRating(true);
@@ -94,8 +108,8 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   const handleRate = (rating: number) => {
     track("suggestion_rated", { rating, command: lastCommand });
-    addLog(`Avaliação (${rating}) enviada. Obrigado!`, "info");
-    setSuggestedText("");
+    addLog(`Avaliação (${rating}) enviada.`, "info");
+    setSuggestedText([]);
     setIsSuggestionAvailable(false);
     setShowRating(false);
   };
@@ -115,25 +129,45 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     );
   }
 
-  return (
-    <div className={styles.root}>
-      <StatusBar logs={logs} />
-      <DiffViewer originalText={originalText} suggestedText={suggestedText} />
-      {showRating ? (
-        <Rating onRate={handleRate} />
-      ) : (
-        <ActionButtonGroup isSuggestionAvailable={isSuggestionAvailable} onAccept={handleAccept} />
-      )}
-      <CommandConsole
-        command={command}
-        onCommandChange={setCommand}
-        onCommandSend={() => fetchSuggestion(command)}
-        onPresetSelect={handlePresetSelect}
+  if (view === "settings") {
+    return (
+      <SettingsPage 
         tone={tone}
         language={language}
         onToneChange={setTone}
         onLanguageChange={setLanguage}
+        onBack={() => setView("main")}
       />
+    );
+  }
+
+  return (
+    <div className={styles.root}>
+      <StatusBar logs={logs} />
+      <div className={styles.mainView}>
+        <div className={styles.content}>
+          {isLoading ? (
+            <div className={styles.loading}>
+              <Spinner />
+              <p>Processando...</p>
+            </div>
+          ) : (
+            <DiffViewer originalText={originalText} suggestedText={suggestedText} />
+          )}
+          {showRating ? (
+            <Rating onRate={handleRate} />
+          ) : (
+            <ActionButtonGroup isSuggestionAvailable={isSuggestionAvailable} onAccept={handleAccept} />
+          )}
+        </div>
+        <CommandConsole
+          command={command}
+          onCommandChange={setCommand}
+          onCommandSend={() => fetchSuggestion(command)}
+          onPresetSelect={handlePresetSelect}
+          onShowSettings={() => setView("settings")}
+        />
+      </div>
     </div>
   );
 };

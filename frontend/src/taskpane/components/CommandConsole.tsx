@@ -1,13 +1,13 @@
 import * as React from "react";
 import { makeStyles, Input, Button, shorthands } from "@fluentui/react-components";
 import { Send24Regular, Settings24Regular } from "@fluentui/react-icons";
-import Settings from "./Settings";
 
 const useStyles = makeStyles({
   wrapper: {
     display: "flex",
     flexDirection: "column",
     ...shorthands.gap("8px"),
+    ...shorthands.padding("0px", "16px", "16px", "16px"), // Adicionado padding para separar da parte de baixo
   },
   presetContainer: {
     display: "flex",
@@ -28,11 +28,7 @@ interface CommandConsoleProps {
   onCommandChange: (newCommand: string) => void;
   onCommandSend: () => void;
   onPresetSelect: (presetCommand: string) => void;
-  // Props para o painel de configurações
-  tone: string;
-  language: string;
-  onToneChange: (tone: string) => void;
-  onLanguageChange: (language: string) => void;
+  onShowSettings: () => void; // Nova prop para mostrar as configurações
 }
 
 const CommandConsole: React.FC<CommandConsoleProps> = ({ 
@@ -40,13 +36,9 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
   onCommandChange, 
   onCommandSend, 
   onPresetSelect, 
-  tone,
-  language,
-  onToneChange,
-  onLanguageChange
+  onShowSettings
 }) => {
   const styles = useStyles();
-  const [isSettingsVisible, setIsSettingsVisible] = React.useState(false);
 
   return (
     <div className={styles.wrapper}>
@@ -76,7 +68,7 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
               <Button
                 icon={<Settings24Regular />}
                 appearance="transparent"
-                onClick={() => setIsSettingsVisible(!isSettingsVisible)}
+                onClick={onShowSettings} // Apenas chama a função
                 aria-label="Configurações"
               />
               <Button
@@ -89,14 +81,6 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
           }
         />
       </div>
-      {isSettingsVisible && (
-        <Settings 
-          tone={tone} 
-          language={language} 
-          onToneChange={onToneChange} 
-          onLanguageChange={onLanguageChange} 
-        />
-      )}
     </div>
   );
 };
