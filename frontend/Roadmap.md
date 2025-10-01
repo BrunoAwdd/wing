@@ -32,24 +32,33 @@ _Este roadmap foi atualizado para um formato orientado a negócios, alinhando de
 **Saídas:** Relatório de usabilidade com plano de ação para correções.
 **Métricas-Alvo:** Taxa de sucesso de tarefa ≥ 85% / Latência p95 < 5s com streaming.
 
-### Fase 5 — Backend & Escalabilidade
+### Fase 5 — Backend & Escalabilidade (Concluída)
 
 - [x] **API Backend** (ex: Node/Express ou Fastify) com autenticação (JWT em rotas /v1/\*).
 - [x] **Gerenciamento de Segredos** no servidor (nenhuma chave no cliente).
-- [ ] **Abstração de Provedores**: Criar um `ProviderService` que suporte **Gemini** e **Azure OpenAI** para facilitar a troca.
-- [ ] **Observabilidade**: Logs estruturados, tracing (OpenTelemetry), rate limiting e WAF.
+- [x] **Abstração de Provedores**: Criar um `ProviderService` que suporte **Gemini** e **Azure OpenAI** para facilitar a troca.
+- [x] **Observabilidade**: Logs estruturados, tracing (OpenTelemetry), rate limiting e WAF (WAF delegado para infraestrutura de deploy).
 
 **Saídas:** SDK interno (`@wing/api-client`) para consumo no frontend.
 **Métricas-Alvo:** 99,9% de uptime (em 30 dias) / Custo por 1k de requisições monitorado.
 
 ### Fase 6 — Ações Específicas (Qualidade)
 
-- [ ] Endpoints dedicados: `/fix`, `/translate`, `/summarize`, `/rewrite`.
-- [ ] **Engenharia de Prompt** avançada por ação, com testes de qualidade (golden sets).
-- [ ] **Avaliação Humana Leve** (escala Likert 1–5) embutida na UI após o usuário "Aceitar".
+- [x] Endpoints dedicados: `/fix`, `/translate`, `/summarize`, `/rewrite`.
+- [x] **Engenharia de Prompt** avançada por ação, com testes de qualidade (golden sets).
+- [x] **Avaliação Humana Leve** (escala Likert 1–5) embutida na UI após o usuário "Aceitar".
 
 **Saídas:** Biblioteca de prompts versionada e testada.
 **Métricas-Alvo:** CSAT ≥ 4.4 / Taxa de aceitação de sugestão ≥ 60%.
+
+### Fase 6.5 — Manutenção de Estrutura de Texto (UX)
+
+- [ ] **Captura Estruturada**: No frontend, capturar a seleção do usuário como uma lista de parágrafos, cada um com seu texto e um ID único.
+- [ ] **API Estruturada**: Modificar a API do backend para receber e retornar um array de objetos de parágrafo (`{id, text}`).
+- [ ] **Renderização Estruturada**: Atualizar a UI para exibir corretamente os múltiplos parágrafos, preservando as quebras de linha.
+
+**Saídas:** A sugestão da IA preserva a formatação de parágrafos do texto original.
+**Métricas-Alvo:** Aumento no CSAT relacionado à qualidade da formatação.
 
 ### Fase 7 — UX Pro & Análise de Documento
 
@@ -83,6 +92,8 @@ _Este roadmap foi atualizado para um formato orientado a negócios, alinhando de
 - [ ] **Landing Zone no Azure**: Deploy da infraestrutura no Azure, com custos estimados e dashboards.
 - [ ] **Paridade com Azure OpenAI**: Testes de qualidade comparando os resultados do Azure OpenAI com os do Gemini.
 - [ ] **Pacote de Pitch**: 1-pager, vídeo de 60s e métricas iniciais de tração.
+- [ ] **Observabilidade**: WAF.
+- [ ] **Add Jaeger ou datadog**: Para os logs;
 
 **Saídas:** Piloto rodando com créditos Azure; acesso ao Copilot/GPT via parceria.
 **Métricas-Alvo:** Conquistar 3 "design partners" / Atingir 10k de instalações no AppSource.
