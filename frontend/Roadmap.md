@@ -53,9 +53,9 @@ _Este roadmap foi atualizado para um formato orientado a negócios, alinhando de
 
 ### Fase 6.5 — Manutenção de Estrutura de Texto (UX)
 
-- [ ] **Captura Estruturada**: No frontend, capturar a seleção do usuário como uma lista de parágrafos, cada um com seu texto e um ID único.
-- [ ] **API Estruturada**: Modificar a API do backend para receber e retornar um array de objetos de parágrafo (`{id, text}`).
-- [ ] **Renderização Estruturada**: Atualizar a UI para exibir corretamente os múltiplos parágrafos, preservando as quebras de linha.
+- [x] **Captura Estruturada**: No frontend, capturar a seleção do usuário como uma lista de parágrafos, cada um com seu texto e um ID único.
+- [x] **API Estruturada**: Modificar a API do backend para receber e retornar um array de objetos de parágrafo (`{id, text}`).
+- [x] **Renderização Estruturada**: Atualizar a UI para exibir corretamente os múltiplos parágrafos, preservando as quebras de linha.
 
 **Saídas:** A sugestão da IA preserva a formatação de parágrafos do texto original.
 **Métricas-Alvo:** Aumento no CSAT relacionado à qualidade da formatação.
