@@ -67,6 +67,20 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     }
   };
 
+  const insertAtCursor = async (textToInsert: string) => {
+    try {
+      await Word.run(async (context) => {
+        const range = context.document.getSelection();
+        range.insertText(textToInsert, Word.InsertLocation.replace);
+        await context.sync();
+      });
+      addLog("Texto do chat inserido no documento.", "success");
+    } catch (error) {
+      console.error("Erro em insertAtCursor:", error);
+      addLog("Erro ao inserir o texto.", "error");
+    }
+  };
+
   useEffect(() => {
     Office.context.document.addHandlerAsync(
       Office.EventType.DocumentSelectionChanged,
@@ -80,5 +94,5 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     handleSelectionChange();
   }, [handleSelectionChange]);
 
-  return { originalText, acceptSuggestion };
+  return { originalText, acceptSuggestion, insertAtCursor };
 };
