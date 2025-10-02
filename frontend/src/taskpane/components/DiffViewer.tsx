@@ -20,7 +20,7 @@ const paragraphsToText = (paragraphs: Paragraph[]): string => {
   if (!paragraphs || paragraphs.length === 0) {
     return "";
   }
-  return paragraphs.map(p => p.text).join("\n");
+  return paragraphs.map((p) => p.text).join("\n");
 };
 
 interface DiffViewerProps {
@@ -45,12 +45,12 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ originalText, suggestedText }) 
         styles={{
           variables: {
             light: {
-              addedBackground: tokens.colorPaletteLightGreenBackground2,
+              addedBackground: tokens.colorPaletteLightGreenBackground1,
               addedColor: tokens.colorNeutralForeground1,
-              removedBackground: tokens.colorPaletteRedBackground2,
+              removedBackground: tokens.colorPaletteRedBackground1,
               removedColor: tokens.colorNeutralForeground1,
-              wordAddedBackground: tokens.colorPaletteLightGreenBackground2,
-              wordRemovedBackground: tokens.colorPaletteRedBackground2,
+              wordAddedBackground: tokens.colorPaletteLightGreenBackground1,
+              wordRemovedBackground: tokens.colorPaletteRedBackground1,
             },
           },
         }}
