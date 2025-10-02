@@ -62,9 +62,9 @@ _Este roadmap foi atualizado para um formato orientado a negócios, alinhando de
 
 ### Fase 7 — UX Pro & Análise de Documento
 
-- [ ] **Botões de Ação Rápida** na UI para tarefas comuns (Corrigir, Resumir, Mudar Tom).
-- [ ] **Leitura do documento inteiro** (com chunking e limites de tamanho).
-- [ ] **Histórico de Alterações** (permitindo ao usuário desfazer uma ação do Wing).
+- [x] **Botões de Ação Rápida** na UI para tarefas comuns (Corrigir, Resumir, Mudar Tom).
+- [x] **Leitura do documento inteiro** (com chunking e limites de tamanho).
+- [ ] **Histórico de Alterações** (permitindo ao usuário desfazer uma ação do Wing) - Importante para comparar com o documento em cache. Inclusive é viavel um calculo de percentual de diferença do documento lido no primeiro momento e depois das mudanças, e utilizar um refresh quando a margem de segurança for atingida.
 
 **Saídas:** UX de "1 clique" para as tarefas mais comuns.
 **Métricas-Alvo:** Redução de 40% no tempo para concluir tarefas de correção.
