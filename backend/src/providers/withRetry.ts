@@ -51,5 +51,30 @@ export function withRetry(provider: AIProvider): AIProvider {
         `AI content generation failed after ${MAX_RETRIES + 1} attempts. Last error: ${lastError?.message}`
       );
     },
+
+    async *generateChatStream(prompt: string, history: any[]): AsyncGenerator<string, void, unknown> {
+      let lastError: Error | undefined;
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const stream = provider.generateChatStream(prompt, history);
+          for await (const chunk of stream) {
+            yield chunk;
+          }
+          return;
+        } catch (error: any) {
+          lastError = error;
+          console.warn(`Attempt ${attempt + 1} of ${MAX_RETRIES + 1} failed for generateChatStream: ${error.message}`);
+
+          if (attempt < MAX_RETRIES) {
+            const delay = INITIAL_BACKOFF_MS * Math.pow(2, attempt);
+            console.log(`Retrying in ${delay}ms...`);
+            await new Promise((resolve) => setTimeout(resolve, delay));
+          }
+        }
+      }
+
+      throw new Error(`AI chat generation failed after ${MAX_RETRIES + 1} attempts. Last error: ${lastError?.message}`);
+    },
   };
 }

@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import { track } from "./services/telemetry";
 import logger from "./services/logger";
 import apiRouter from "./routes/api.routes";
+import chatRouter from "./routes/chat.routes";
 
 dotenv.config();
 
@@ -77,6 +78,7 @@ app.post("/login", (req, res) => {
 
 // --- Rotas Protegidas da API v1 ---
 app.use("/api/v1", apiRouter);
+app.use("/api/v1/chat", chatRouter);
 
 // --- Inicialização do Servidor ---
 app.listen(port, () => {

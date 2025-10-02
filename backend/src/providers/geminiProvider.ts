@@ -41,6 +41,22 @@ class GeminiProvider implements AIProvider {
       yield chunk.text();
     }
   }
+
+  async *generateChatStream(
+    prompt: string,
+    history: any[]
+  ): AsyncGenerator<string, void, unknown> {
+    const model = this.genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    const chat = model.startChat({
+      history: history,
+    });
+
+    const result = await chat.sendMessageStream(prompt);
+
+    for await (const chunk of result.stream) {
+      yield chunk.text();
+    }
+  }
 }
 
 export const geminiProvider = new GeminiProvider();
