@@ -13,7 +13,8 @@ import DiffViewer from "./DiffViewer";
 import ActionButtonGroup from "./ActionButtonGroup";
 import CommandConsole from "./CommandConsole";
 import Rating from "./Rating";
-import SettingsPage from "./SettingsPage"; // Importar a nova página
+import SettingsPage from "./SettingsPage";
+import DocumentAnalysisPage from "./DocumentAnalysisPage"; // Importar a nova página
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
 import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
@@ -29,13 +30,13 @@ const useStyles = makeStyles({
     boxSizing: "border-box",
     backgroundColor: tokens.colorNeutralBackground3,
   },
-  mainView: { // Container para a visão principal
+  mainView: {
     display: "flex",
     flexDirection: "column",
     flexGrow: 1,
-    overflowY: "hidden", // Evitar scroll duplo
+    overflowY: "hidden",
   },
-  content: { // Conteúdo principal que deve ter scroll
+  content: {
     flexGrow: 1,
     overflowY: "auto",
     display: "flex",
@@ -61,7 +62,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const styles = useStyles();
 
   // Estado de navegação
-  const [view, setView] = useState<"main" | "settings">("main");
+  const [view, setView] = useState<"main" | "settings" | "documentAnalysis">("main");
 
   // Estados gerenciados pelo App
   const [command, setCommand] = useState("fix");
@@ -81,7 +82,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   // Hooks customizados
   const { licenseToken, isOnline } = useAppSetup({ addLog, showFluentToast });
-  const { originalText, acceptSuggestion } = useWordInteraction({ addLog });
+  const { originalText, acceptSuggestion, insertAtCursor } = useWordInteraction({ addLog });
   const {
     suggestedText,
     setSuggestedText,
@@ -89,7 +90,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setIsSuggestionAvailable,
     fetchSuggestion,
     lastCommand,
-    isLoading, // Obter o novo estado
+    isLoading,
   } = useAIApi({
     licenseToken, isOnline, originalText, tone, language, addLog, showFluentToast, setShowRating
   });
@@ -141,6 +142,10 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     );
   }
 
+  if (view === "documentAnalysis") {
+    return <DocumentAnalysisPage onBack={() => setView("main")} insertAtCursor={insertAtCursor} />;
+  }
+
   return (
     <div className={styles.root}>
       <StatusBar logs={logs} />
@@ -166,6 +171,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onCommandSend={() => fetchSuggestion(command)}
           onPresetSelect={handlePresetSelect}
           onShowSettings={() => setView("settings")}
+          onStartAnalysis={() => setView("documentAnalysis")}
         />
       </div>
     </div>

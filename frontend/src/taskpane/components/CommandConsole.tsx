@@ -28,15 +28,17 @@ interface CommandConsoleProps {
   onCommandChange: (newCommand: string) => void;
   onCommandSend: () => void;
   onPresetSelect: (presetCommand: string) => void;
-  onShowSettings: () => void; // Nova prop para mostrar as configurações
+  onShowSettings: () => void;
+  onStartAnalysis: () => void; // Nova prop para análise de documento
 }
 
-const CommandConsole: React.FC<CommandConsoleProps> = ({ 
-  command, 
-  onCommandChange, 
-  onCommandSend, 
-  onPresetSelect, 
-  onShowSettings
+const CommandConsole: React.FC<CommandConsoleProps> = ({
+  command,
+  onCommandChange,
+  onCommandSend,
+  onPresetSelect,
+  onShowSettings,
+  onStartAnalysis,
 }) => {
   const styles = useStyles();
 
@@ -54,6 +56,9 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
         </Button>
         <Button appearance="outline" onClick={() => onPresetSelect("rewrite")}>
           Reescrever
+        </Button>
+        <Button appearance="primary" onClick={onStartAnalysis}>
+          Analisar Documento
         </Button>
       </div>
       <div className={styles.commandConsole}>
