@@ -59,7 +59,7 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
       <div className={styles.commandConsole}>
         <Input
           className={styles.input}
-          placeholder='Ou digite um comando personalizado...'
+          placeholder="Ou digite um comando personalizado..."
           value={command}
           onChange={(e) => onCommandChange(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && onCommandSend()}
