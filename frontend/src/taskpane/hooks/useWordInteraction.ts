@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { LogEntry } from "../components/StatusBar";
 
-/* global Word, Office, crypto */
+/* global Word, Office */
 
-// A estrutura de dados agora usa texto puro
 export interface Paragraph {
   id: string;
   text: string;
@@ -13,29 +12,57 @@ interface WordInteractionProps {
   addLog: (message: string, type: LogEntry["type"]) => void;
 }
 
+const simpleHash = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash.toString();
+};
+
 export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
   const [originalText, setOriginalText] = useState<Paragraph[]>([]);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const isUpdatingRef = useRef(isUpdating);
+  isUpdatingRef.current = isUpdating;
 
   const handleSelectionChange = useCallback(async () => {
+    if (isUpdatingRef.current) {
+      addLog(`handleSelectionChange skipped due to isUpdatingRef.`, "info");
+      return;
+    }
     try {
       await Word.run(async (context) => {
         const range = context.document.getSelection();
         const paragraphs = range.paragraphs;
-        paragraphs.load("items/text"); // Carregamos apenas o texto
+        paragraphs.load("items/text");
         await context.sync();
 
-        if (paragraphs.items.length > 0 && paragraphs.items[0].text.trim() !== "") {
-          const paragraphData: Paragraph[] = paragraphs.items.map(p => ({
-            id: crypto.randomUUID(),
-            text: p.text,
-          }));
+        setOriginalText((prevOriginalText) => {
+          if (paragraphs.items.length > 0 && paragraphs.items[0].text.trim() !== "") {
+            const newText = paragraphs.items.map((p) => p.text).join("\n");
+            const oldText = prevOriginalText.map((p) => p.text).join("\n");
 
-          setOriginalText(paragraphData);
-          addLog(`${paragraphData.length} parágrafo(s) selecionado(s).`, "info");
-        } else {
-          setOriginalText([]);
-          addLog("Selecione um texto para começar.", "info");
-        }
+            if (newText === oldText) {
+              return prevOriginalText;
+            }
+
+            const paragraphData: Paragraph[] = paragraphs.items.map((p, i) => ({
+              id: `${i}-${simpleHash(p.text)}`,
+              text: p.text,
+            }));
+            addLog(`${paragraphData.length} parágrafo(s) selecionado(s).`, "info");
+            return paragraphData;
+          } else {
+            if (prevOriginalText.length === 0) {
+              return prevOriginalText;
+            }
+            addLog("Selecione um texto para começar.", "info");
+            return [];
+          }
+        });
       });
     } catch (error) {
       console.error("Erro em handleSelectionChange:", error);
@@ -43,7 +70,9 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     }
   }, [addLog]);
 
-  const acceptSuggestion = async (paragraphsToInsert: Paragraph[]) => {
+  const acceptAllSuggestions = async (paragraphsToInsert: Paragraph[]) => {
+    isUpdatingRef.current = true;
+    setIsUpdating(true);
     try {
       await Word.run(async (context) => {
         const range = context.document.getSelection();
@@ -53,17 +82,49 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
 
         paragraphs.items.forEach((paragraph, i) => {
           if (paragraphsToInsert[i]) {
-            // Usamos insertText, que preserva a formatação a nível de parágrafo
             paragraph.insertText(paragraphsToInsert[i].text, Word.InsertLocation.replace);
           }
         });
-        
+
         await context.sync();
       });
       addLog("Texto atualizado com sucesso!", "success");
     } catch (error) {
-      console.error("Erro em acceptSuggestion:", error);
+      console.error("Erro em acceptAllSuggestions:", error);
       addLog("Erro ao inserir o texto sugerido.", "error");
+    } finally {
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+        setIsUpdating(false);
+      }, 300);
+    }
+  };
+
+  const acceptSingleSuggestion = async (index: number, suggestionText: string) => {
+    isUpdatingRef.current = true;
+    setIsUpdating(true);
+    try {
+      await Word.run(async (context) => {
+        const range = context.document.getSelection();
+        const paragraphs = range.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
+
+        if (paragraphs.items[index]) {
+          paragraphs.items[index].insertText(suggestionText, Word.InsertLocation.replace);
+        }
+
+        await context.sync();
+      });
+      addLog("Sugestão aceita com sucesso!", "success");
+    } catch (error) {
+      console.error("Erro em acceptSingleSuggestion:", error);
+      addLog("Erro ao aceitar a sugestão.", "error");
+    } finally {
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+        setIsUpdating(false);
+      }, 300);
     }
   };
 
@@ -94,5 +155,5 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     handleSelectionChange();
   }, [handleSelectionChange]);
 
-  return { originalText, acceptSuggestion, insertAtCursor };
+  return { originalText, acceptAllSuggestions, acceptSingleSuggestion, insertAtCursor, isUpdating };
 };

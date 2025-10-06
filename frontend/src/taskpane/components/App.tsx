@@ -19,6 +19,7 @@ import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
 import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
 import { useAIApi } from "../hooks/useAIApi";
+import * as suggestionCache from "../services/suggestionCache";
 
 /* global process */
 
@@ -77,12 +78,17 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   }, []);
 
   const showFluentToast = (message: string, type: "info" | "success" | "error") => {
-    dispatchToast(<Toast><ToastTitle>{message}</ToastTitle></Toast>, { intent: type, timeout: 3000, toastId });
+    dispatchToast(
+      <Toast>
+        <ToastTitle>{message}</ToastTitle>
+      </Toast>,
+      { intent: type, timeout: 3000, toastId }
+    );
   };
 
   // Hooks customizados
   const { licenseToken, isOnline } = useAppSetup({ addLog, showFluentToast });
-  const { originalText, acceptSuggestion, insertAtCursor } = useWordInteraction({ addLog });
+  const { originalText, acceptSingleSuggestion, insertAtCursor, isUpdating } = useWordInteraction({ addLog });
   const {
     suggestedText,
     setSuggestedText,
@@ -92,24 +98,55 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     lastCommand,
     isLoading,
   } = useAIApi({
-    licenseToken, isOnline, originalText, tone, language, addLog, showFluentToast, setShowRating
+    licenseToken,
+    isOnline,
+    originalText,
+    tone,
+    language,
+    addLog,
+    showFluentToast,
+    setShowRating,
   });
 
   useEffect(() => {
+    if (isUpdating) return;
+    suggestionCache.clearSuggestions();
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
   }, [originalText]);
 
-  const handleAccept = async () => {
+  const handleRejectAll = () => {
     if (suggestedText.length === 0) return;
-    track("suggestion_accepted", { command: lastCommand });
-    await acceptSuggestion(suggestedText);
+    track("suggestion_rejected_all", { command: lastCommand });
+    suggestionCache.clearSuggestions();
+    setSuggestedText([]);
+    setIsSuggestionAvailable(false);
     setShowRating(true);
+  };
+
+  const handleAcceptSingle = async (id: string) => {
+    const suggestion = suggestedText.find((s) => s.id === id);
+    if (!suggestion) return;
+
+    const originalIndex = originalText.findIndex((p) => p.id === id);
+    if (originalIndex === -1) return;
+
+    track("suggestion_accepted_single", { command: lastCommand });
+    await acceptSingleSuggestion(originalIndex, suggestion.text);
+    suggestionCache.removeSuggestion(id);
+    setSuggestedText((prev) => prev.filter((s) => s.id !== id));
+  };
+
+  const handleRejectSingle = (id: string) => {
+    track("suggestion_rejected_single", { command: lastCommand });
+    suggestionCache.removeSuggestion(id);
+    setSuggestedText((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleRate = (rating: number) => {
     track("suggestion_rated", { rating, command: lastCommand });
     addLog(`Avaliação (${rating}) enviada.`, "info");
+    suggestionCache.clearSuggestions();
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
     setShowRating(false);
@@ -132,7 +169,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   if (view === "settings") {
     return (
-      <SettingsPage 
+      <SettingsPage
         tone={tone}
         language={language}
         onToneChange={setTone}
@@ -157,12 +194,17 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
               <p>Processando...</p>
             </div>
           ) : (
-            <DiffViewer originalText={originalText} suggestedText={suggestedText} />
+            <DiffViewer
+              originalText={originalText}
+              suggestedText={suggestedText}
+              onAcceptSingle={handleAcceptSingle}
+              onRejectSingle={handleRejectSingle}
+            />
           )}
           {showRating ? (
             <Rating onRate={handleRate} />
           ) : (
-            <ActionButtonGroup isSuggestionAvailable={isSuggestionAvailable} onAccept={handleAccept} />
+            <ActionButtonGroup isSuggestionAvailable={isSuggestionAvailable} onAccept={handleRejectAll} />
           )}
         </div>
         <CommandConsole

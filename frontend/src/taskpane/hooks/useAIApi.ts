@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { track } from "../services/telemetry";
 import { LogEntry } from "../components/StatusBar";
+import * as cache from "../services/suggestionCache";
 import { Paragraph } from "./useWordInteraction";
 
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
@@ -26,10 +27,16 @@ export const useAIApi = ({
   showFluentToast,
   setShowRating,
 }: AIApiProps) => {
-  const [suggestedText, setSuggestedText] = useState<Paragraph[]>([]);
-  const [isSuggestionAvailable, setIsSuggestionAvailable] = useState(false);
+  const [suggestedText, setSuggestedText] = useState<Paragraph[]>(cache.getSuggestions());
+  const [isSuggestionAvailable, setIsSuggestionAvailable] = useState(cache.getSuggestions().length > 0);
   const [lastCommand, setLastCommand] = useState("");
   const [isLoading, setIsLoading] = useState(false); // Novo estado de loading
+
+  useEffect(() => {
+    const suggestions = cache.getSuggestions();
+    setSuggestedText(suggestions);
+    setIsSuggestionAvailable(suggestions.length > 0);
+  }, []);
 
   const fetchSuggestion = async (commandToExecute: string) => {
     setShowRating(false);
@@ -87,6 +94,7 @@ export const useAIApi = ({
 
       let streamedParagraphs: Paragraph[] = [];
       setSuggestedText([]);
+      cache.clearSuggestions();
       setIsSuggestionAvailable(true);
 
       const reader = response.body.getReader();
@@ -109,12 +117,13 @@ export const useAIApi = ({
             const paragraph = JSON.parse(line);
             streamedParagraphs = [...streamedParagraphs, paragraph];
             setSuggestedText([...streamedParagraphs]);
+            cache.setSuggestions(streamedParagraphs);
           } catch (e) {
             console.error("Erro ao parsear o JSON do stream:", line, e);
           }
         }
       }
-
+      cache.setSuggestions(streamedParagraphs);
       addLog("Sugestão recebida!", "success");
     } catch (error) {
       console.error("Erro ao chamar o backend:", error);
