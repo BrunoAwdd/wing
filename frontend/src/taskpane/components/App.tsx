@@ -14,12 +14,12 @@ import ActionButtonGroup from "./ActionButtonGroup";
 import CommandConsole from "./CommandConsole";
 import Rating from "./Rating";
 import SettingsPage from "./SettingsPage";
-import DocumentAnalysisPage from "./DocumentAnalysisPage"; // Importar a nova página
+import DocumentAnalysisPage from "./DocumentAnalysisPage";
+import HistoryPage from "./HistoryPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
 import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
 import { useAIApi } from "../hooks/useAIApi";
-import * as suggestionCache from "../services/suggestionCache";
 
 /* global process */
 
@@ -63,7 +63,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const styles = useStyles();
 
   // Estado de navegação
-  const [view, setView] = useState<"main" | "settings" | "documentAnalysis">("main");
+  const [view, setView] = useState<"main" | "settings" | "documentAnalysis" | "history">("main");
 
   // Estados gerenciados pelo App
   const [command, setCommand] = useState("fix");
@@ -110,7 +110,6 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   useEffect(() => {
     if (isUpdating) return;
-    suggestionCache.clearSuggestions();
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
   }, [originalText]);
@@ -118,7 +117,6 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const handleRejectAll = () => {
     if (suggestedText.length === 0) return;
     track("suggestion_rejected_all", { command: lastCommand });
-    suggestionCache.clearSuggestions();
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
     setShowRating(true);
@@ -133,20 +131,17 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
     track("suggestion_accepted_single", { command: lastCommand });
     await acceptSingleSuggestion(originalIndex, suggestion.text);
-    suggestionCache.removeSuggestion(id);
     setSuggestedText((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleRejectSingle = (id: string) => {
     track("suggestion_rejected_single", { command: lastCommand });
-    suggestionCache.removeSuggestion(id);
     setSuggestedText((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleRate = (rating: number) => {
     track("suggestion_rated", { rating, command: lastCommand });
     addLog(`Avaliação (${rating}) enviada.`, "info");
-    suggestionCache.clearSuggestions();
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
     setShowRating(false);
@@ -183,6 +178,10 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     return <DocumentAnalysisPage onBack={() => setView("main")} insertAtCursor={insertAtCursor} />;
   }
 
+  if (view === "history") {
+    return <HistoryPage onBack={() => setView("main")} insertAtCursor={insertAtCursor} />;
+  }
+
   return (
     <div className={styles.root}>
       <StatusBar logs={logs} />
@@ -214,6 +213,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onPresetSelect={handlePresetSelect}
           onShowSettings={() => setView("settings")}
           onStartAnalysis={() => setView("documentAnalysis")}
+          onShowHistory={() => setView("history")}
         />
       </div>
     </div>

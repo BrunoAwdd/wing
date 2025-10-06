@@ -10,7 +10,7 @@ import chatRouter from "./routes/chat.routes";
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3003;
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {

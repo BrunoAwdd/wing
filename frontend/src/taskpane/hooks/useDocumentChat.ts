@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 
 /* global Word, process */
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3003";
 
 export interface ChatMessage {
   author: 'user' | 'model';
