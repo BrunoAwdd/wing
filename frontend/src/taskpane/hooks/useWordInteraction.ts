@@ -172,6 +172,20 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     }
   };
 
+  const insertHtmlAtCursor = async (html: string) => {
+    try {
+      await Word.run(async (context) => {
+        const range = context.document.getSelection();
+        range.insertHtml(html, Word.InsertLocation.replace);
+        await context.sync();
+      });
+      addLog("HTML inserido no documento.", "success");
+    } catch (error) {
+      console.error("Erro em insertHtmlAtCursor:", error);
+      addLog("Erro ao inserir o HTML.", "error");
+    }
+  };
+
   useEffect(() => {
     Office.context.document.addHandlerAsync(
       Office.EventType.DocumentSelectionChanged,
@@ -185,5 +199,5 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     handleSelectionChange();
   }, [handleSelectionChange]);
 
-  return { originalText, acceptAllSuggestions, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, isUpdating };
+  return { originalText, acceptAllSuggestions, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, insertHtmlAtCursor, isUpdating };
 };

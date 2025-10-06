@@ -88,7 +88,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   // Hooks customizados
   const { licenseToken, isOnline } = useAppSetup({ addLog, showFluentToast });
-  const { originalText, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, isUpdating } = useWordInteraction({ addLog });
+  const { originalText, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, insertHtmlAtCursor, isUpdating } = useWordInteraction({ addLog });
   const {
     suggestedText,
     setSuggestedText,
@@ -197,7 +197,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   }
 
   if (view === "documentAnalysis") {
-    return <DocumentAnalysisPage onBack={() => setView("main")} insertAtCursor={insertAtCursor} />;
+    return <DocumentAnalysisPage onBack={() => setView("main")} insertHtmlAtCursor={insertHtmlAtCursor} />;
   }
 
   if (view === "history") {

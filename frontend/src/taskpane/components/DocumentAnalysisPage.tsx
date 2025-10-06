@@ -9,6 +9,7 @@ import {
   Input,
   Spinner,
 } from "@fluentui/react-components";
+import ReactDOMServer from "react-dom/server";
 import { ArrowLeft24Regular, Send24Regular } from "@fluentui/react-icons";
 import { useDocumentChat, ChatMessage } from "../hooks/useDocumentChat";
 import ReactMarkdown from "react-markdown";
@@ -86,10 +87,10 @@ const useStyles = makeStyles({
 
 interface DocumentAnalysisPageProps {
   onBack: () => void;
-  insertAtCursor: (text: string) => Promise<void>;
+  insertHtmlAtCursor: (html: string) => Promise<void>;
 }
 
-const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({ onBack, insertAtCursor }) => {
+const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({ onBack, insertHtmlAtCursor }) => {
   const styles = useStyles();
   const { messages, isLoading, error, startAnalysis, sendMessage, isSessionStarted } =
     useDocumentChat();
@@ -105,6 +106,11 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({ onBack, ins
       sendMessage(currentMessage);
       setCurrentMessage("");
     }
+  };
+
+  const handleInsert = (markdownContent: string) => {
+    const html = ReactDOMServer.renderToStaticMarkup(<ReactMarkdown>{markdownContent}</ReactMarkdown>);
+    insertHtmlAtCursor(html);
   };
 
   return (
@@ -143,7 +149,7 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({ onBack, ins
                   <Button
                     size="small"
                     appearance="subtle"
-                    onClick={() => insertAtCursor(msg.content)}
+                    onClick={() => handleInsert(msg.content)}
                     style={{ marginTop: "8px" }}
                   >
                     Inserir
