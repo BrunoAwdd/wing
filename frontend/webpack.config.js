@@ -104,6 +104,7 @@ module.exports = async (env, options) => {
       hot: true,
       headers: {
         "Access-Control-Allow-Origin": "*",
+        "Permissions-Policy": "clipboard-write=*",
       },
       allowedHosts: "all",
       server: {

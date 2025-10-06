@@ -1,5 +1,6 @@
 import * as React from "react";
-import { makeStyles, tokens, shorthands, Button } from "@fluentui/react-components";
+import { makeStyles, tokens, shorthands, Button, Tooltip } from "@fluentui/react-components";
+import { Checkmark24Regular, Dismiss24Regular } from "@fluentui/react-icons";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { Paragraph } from "../hooks/useWordInteraction";
 
@@ -64,8 +65,12 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ originalText, suggestedText, on
               />
             </div>
             <div className={styles.buttons}>
-              <Button onClick={() => onAcceptSingle(suggestion.id)}>Aceitar</Button>
-              <Button onClick={() => onRejectSingle(suggestion.id)}>Rejeitar</Button>
+              <Tooltip content="Rejeitar" relationship="label">
+                <Button icon={<Dismiss24Regular />} onClick={() => onRejectSingle(suggestion.id)} />
+              </Tooltip>
+              <Tooltip content="Aceitar" relationship="label">
+                <Button appearance="primary" icon={<Checkmark24Regular />} onClick={() => onAcceptSingle(suggestion.id)} />
+              </Tooltip>
             </div>
           </div>
         );

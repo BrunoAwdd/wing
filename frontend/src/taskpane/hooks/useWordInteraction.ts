@@ -128,6 +128,36 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     }
   };
 
+  const acceptMultipleSuggestions = async (suggestions: { index: number; text: string }[]) => {
+    isUpdatingRef.current = true;
+    setIsUpdating(true);
+    try {
+      await Word.run(async (context) => {
+        const range = context.document.getSelection();
+        const paragraphs = range.paragraphs;
+        paragraphs.load("items");
+        await context.sync();
+
+        suggestions.forEach(({ index, text }) => {
+          if (paragraphs.items[index]) {
+            paragraphs.items[index].insertText(text, Word.InsertLocation.replace);
+          }
+        });
+
+        await context.sync();
+      });
+      addLog("Sugestões aceitas com sucesso!", "success");
+    } catch (error) {
+      console.error("Erro em acceptMultipleSuggestions:", error);
+      addLog("Erro ao aceitar as sugestões.", "error");
+    } finally {
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+        setIsUpdating(false);
+      }, 300);
+    }
+  };
+
   const insertAtCursor = async (textToInsert: string) => {
     try {
       await Word.run(async (context) => {
@@ -155,5 +185,5 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     handleSelectionChange();
   }, [handleSelectionChange]);
 
-  return { originalText, acceptAllSuggestions, acceptSingleSuggestion, insertAtCursor, isUpdating };
+  return { originalText, acceptAllSuggestions, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, isUpdating };
 };

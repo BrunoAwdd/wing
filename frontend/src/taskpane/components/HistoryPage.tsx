@@ -9,8 +9,9 @@ import {
   CardHeader,
   tokens,
   Text,
+  Tooltip,
 } from "@fluentui/react-components";
-import { History24Regular, ArrowLeft24Regular } from "@fluentui/react-icons";
+import { History24Regular, ArrowLeft24Regular, DocumentArrowDown24Regular, Copy24Regular } from "@fluentui/react-icons";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { getFullHistory, SuggestionHistory, HistoryEntry } from "../services/suggestionCache";
 import { Paragraph } from "../hooks/useWordInteraction";
@@ -124,6 +125,26 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ onBack, insertAtCursor }) => 
     setActiveSuggestion(null);
   };
 
+  const copyToClipboard = (text: string) => {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.top = "0";
+    textArea.style.left = "0";
+    textArea.style.position = "fixed";
+
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+
+    try {
+      document.execCommand("copy");
+    } catch (err) {
+      console.error("Fallback: Oops, unable to copy", err);
+    }
+
+    document.body.removeChild(textArea);
+  };
+
   const renderTextFromParagraphs = (paragraphs: Paragraph[]) => {
     if (!paragraphs) {
       return ""; // Safeguard for old history entries
@@ -137,6 +158,21 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ onBack, insertAtCursor }) => 
         <div className={styles.header}>
           <Button icon={<ArrowLeft24Regular />} appearance="transparent" onClick={handleBackToList} />
           <Text className={styles.headerTitle}>Comparar Sugestão</Text>
+          <div className={styles.headerActions}>
+            <Tooltip content="Inserir Tudo" relationship="label">
+              <Button
+                appearance="primary"
+                icon={<DocumentArrowDown24Regular />}
+                onClick={() => insertAtCursor(renderTextFromParagraphs(activeSuggestion.suggestion))}
+              />
+            </Tooltip>
+            <Tooltip content="Copiar Tudo" relationship="label">
+              <Button
+                icon={<Copy24Regular />}
+                onClick={() => copyToClipboard(renderTextFromParagraphs(activeSuggestion.suggestion))}
+              />
+            </Tooltip>
+          </div>
         </div>
         <div className={styles.content}>
           <ReactDiffViewer
@@ -163,9 +199,19 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ onBack, insertAtCursor }) => 
             {activeSuggestion.suggestion.map((p, index) => (
               <div key={index} className={styles.paragraphEntry}>
                 <Text>{p.text}</Text>
-                <Button size="small" appearance="primary" onClick={() => insertAtCursor(p.text)}>
-                  Inserir
-                </Button>
+                <div className={styles.paragraphActions}>
+                  <Tooltip content="Inserir" relationship="label">
+                    <Button
+                      size="small"
+                      appearance="primary"
+                      icon={<DocumentArrowDown24Regular />}
+                      onClick={() => insertAtCursor(p.text)}
+                    />
+                  </Tooltip>
+                  <Tooltip content="Copiar" relationship="label">
+                    <Button size="small" icon={<Copy24Regular />} onClick={() => copyToClipboard(p.text)} />
+                  </Tooltip>
+                </div>
               </div>
             ))}
           </div>
@@ -174,6 +220,10 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ onBack, insertAtCursor }) => 
     );
   }
 
+  const filteredHistory = Object.entries(history).filter(
+    ([, entry]: [string, HistoryEntry]) => renderTextFromParagraphs(entry.originalText).trim() !== ""
+  );
+
   return (
     <div className={styles.root}>
       <div className={styles.header}>
@@ -181,7 +231,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ onBack, insertAtCursor }) => 
         <Text className={styles.headerTitle}>Histórico de Sugestões</Text>
       </div>
       <div className={styles.content}>
-        {Object.keys(history).length === 0 ? (
+        {filteredHistory.length === 0 ? (
           <div className={styles.emptyState}>
             <History24Regular style={{ fontSize: "48px" }} />
             <Text size={400} weight="semibold">
@@ -192,7 +242,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ onBack, insertAtCursor }) => 
             </Text>
           </div>
         ) : (
-          Object.entries(history).map(([textId, entry]: [string, HistoryEntry]) => (
+          filteredHistory.map(([textId, entry]: [string, HistoryEntry]) => (
             <Card key={textId} className={styles.historyEntry}>
               <CardHeader header={<Subtitle2>Texto Original</Subtitle2>} />
               <div className={styles.cardBody}>

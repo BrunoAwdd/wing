@@ -88,7 +88,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   // Hooks customizados
   const { licenseToken, isOnline } = useAppSetup({ addLog, showFluentToast });
-  const { originalText, acceptSingleSuggestion, insertAtCursor, isUpdating } = useWordInteraction({ addLog });
+  const { originalText, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, isUpdating } = useWordInteraction({ addLog });
   const {
     suggestedText,
     setSuggestedText,
@@ -113,6 +113,28 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
   }, [originalText]);
+
+  const handleAcceptAll = async () => {
+    if (suggestedText.length === 0) return;
+    track("suggestion_accepted_all", { command: lastCommand });
+
+    const suggestionsToApply = suggestedText
+      .map((suggestion) => {
+        const originalIndex = originalText.findIndex((p) => p.id === suggestion.id);
+        if (originalIndex === -1) {
+          return null;
+        }
+        return { index: originalIndex, text: suggestion.text };
+      })
+      .filter((s) => s !== null);
+
+    if (suggestionsToApply.length > 0) {
+      await acceptMultipleSuggestions(suggestionsToApply);
+    }
+
+    setSuggestedText([]);
+    setIsSuggestionAvailable(false);
+  };
 
   const handleRejectAll = () => {
     if (suggestedText.length === 0) return;
@@ -203,7 +225,11 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           {showRating ? (
             <Rating onRate={handleRate} />
           ) : (
-            <ActionButtonGroup isSuggestionAvailable={isSuggestionAvailable} onAccept={handleRejectAll} />
+            <ActionButtonGroup
+              isSuggestionAvailable={isSuggestionAvailable}
+              onAccept={handleAcceptAll}
+              onReject={handleRejectAll}
+            />
           )}
         </div>
         <CommandConsole
