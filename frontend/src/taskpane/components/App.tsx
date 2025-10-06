@@ -19,6 +19,7 @@ import HistoryPage from "./HistoryPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
 import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
+import LastUpdatesPage from "./LastUpdatesPage";
 import { useAIApi } from "../hooks/useAIApi";
 
 /* global process */
@@ -63,7 +64,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const styles = useStyles();
 
   // Estado de navegação
-  const [view, setView] = useState<"main" | "settings" | "documentAnalysis" | "history">("main");
+  const [view, setView] = useState<"main" | "settings" | "documentAnalysis" | "history" | "lastUpdates">("main");
 
   // Estados gerenciados pelo App
   const [command, setCommand] = useState("fix");
@@ -204,6 +205,16 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     return <HistoryPage onBack={() => setView("main")} insertAtCursor={insertAtCursor} />;
   }
 
+  if (view === "lastUpdates") {
+    return (
+      <LastUpdatesPage
+        onBack={() => setView("main")}
+        acceptSingleSuggestion={acceptSingleSuggestion}
+        originalText={originalText}
+      />
+    );
+  }
+
   return (
     <div className={styles.root}>
       <StatusBar logs={logs} />
@@ -240,6 +251,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onShowSettings={() => setView("settings")}
           onStartAnalysis={() => setView("documentAnalysis")}
           onShowHistory={() => setView("history")}
+          onShowLastUpdates={() => setView("lastUpdates")}
         />
       </div>
     </div>

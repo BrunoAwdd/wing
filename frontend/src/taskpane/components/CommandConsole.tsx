@@ -1,6 +1,6 @@
 import * as React from "react";
 import { makeStyles, Input, Button, shorthands } from "@fluentui/react-components";
-import { Send24Regular, Settings24Regular, History24Regular } from "@fluentui/react-icons";
+import { Send24Regular, Settings24Regular, History24Regular, ArrowSyncCheckmark24Regular } from "@fluentui/react-icons";
 
 const useStyles = makeStyles({
   wrapper: {
@@ -31,6 +31,7 @@ interface CommandConsoleProps {
   onShowSettings: () => void;
   onStartAnalysis: () => void; // Nova prop para análise de documento
   onShowHistory: () => void;
+  onShowLastUpdates: () => void;
 }
 
 const CommandConsole: React.FC<CommandConsoleProps> = ({
@@ -41,6 +42,7 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
   onShowSettings,
   onStartAnalysis,
   onShowHistory,
+  onShowLastUpdates,
 }) => {
   const styles = useStyles();
 
@@ -72,6 +74,12 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
           onKeyDown={(e) => e.key === "Enter" && onCommandSend()}
           contentAfter={
             <>
+              <Button
+                icon={<ArrowSyncCheckmark24Regular />}
+                appearance="transparent"
+                onClick={onShowLastUpdates}
+                aria-label="Últimas Atualizações"
+              />
               <Button
                 icon={<History24Regular />}
                 appearance="transparent"

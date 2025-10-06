@@ -3,8 +3,7 @@ import { track } from "../services/telemetry";
 import { LogEntry } from "../components/StatusBar";
 import * as cache from "../services/suggestionCache";
 import { Paragraph } from "./useWordInteraction";
-
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:2";
+import { addOrUpdateChange } from "../services/pendingChangesCache";
 
 interface AIApiProps {
   licenseToken: string | null;
@@ -16,6 +15,8 @@ interface AIApiProps {
   showFluentToast: (message: string, type: "info" | "success" | "error") => void;
   setShowRating: (show: boolean) => void;
 }
+
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3003";
 
 export const useAIApi = ({
   licenseToken,
@@ -108,6 +109,15 @@ export const useAIApi = ({
           if (line.trim() === "") continue;
           try {
             const paragraph = JSON.parse(line);
+            const originalParagraph = originalText.find((p) => p.id === paragraph.id);
+            if (originalParagraph) {
+              addOrUpdateChange({
+                id: paragraph.id,
+                original: originalParagraph,
+                suggestion: paragraph,
+                status: "pending",
+              });
+            }
             streamedParagraphs = [...streamedParagraphs, paragraph];
             setSuggestedText([...streamedParagraphs]);
           } catch (e) {
