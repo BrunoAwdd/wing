@@ -1,8 +1,8 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { AIProvider } from "./providerInterface";
+import { GoogleGenerativeAI } from "../deps.ts";
+import { AIProvider } from "./providerInterface.ts";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-1.5-flash";
 
 class GeminiProvider implements AIProvider {
   private readonly genAI: GoogleGenerativeAI;
@@ -23,7 +23,7 @@ class GeminiProvider implements AIProvider {
     // Seleciona o modelo com base no nível da licença
     const modelName =
       entitlement === "Paid"
-        ? "gemini-2.5-pro" // Modelo superior para usuários pagos
+        ? "gemini-1.5-pro" // Modelo superior para usuários pagos
         : this.model; // Modelo padrão (gemini-1.5-flash) para usuários gratuitos
 
     const model = this.genAI.getGenerativeModel({

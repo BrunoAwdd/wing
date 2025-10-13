@@ -1,86 +1,87 @@
-import express, { Request, Response, NextFunction } from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import jwt from "jsonwebtoken";
-import { track } from "./services/telemetry";
-import logger from "./services/logger";
-import apiRouter from "./routes/api.routes";
-import chatRouter from "./routes/chat.routes";
+import { Application, Router, oakCors } from "./deps.ts";
+import logger from "./services/logger.ts";
+// import apiRouter from "./routes/api.routes.ts"; // Não vamos mais usar o roteador importado
+import chatRouter from "./routes/chat.routes.ts";
+import authRouter from "./routes/auth.routes.ts";
 
-dotenv.config();
+// Dependências que estavam em api.routes.ts
+import { apiLimiter } from "./middlewares/rateLimiter.ts";
+import { handleStreamRequest } from "./services/requestHandler.ts";
+import {
+  PromptBuilder,
+  buildFixPrompt,
+  buildTranslatePrompt,
+  buildSummarizePrompt,
+  buildRewritePrompt,
+} from "./prompts.ts";
 
-const app = express();
-const port = process.env.PORT || 3003;
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET não está definido nas variáveis de ambiente.");
-}
+// --- Configuração de Ambiente ---
+const port = parseInt(Deno.env.get("PORT") || "3003");
+
+// --- Inicialização da Aplicação ---
+const app = new Application();
 
 // --- Middlewares ---
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
 
-// --- Tipos e Interfaces ---
-interface AuthenticatedRequest extends Request {
-  user?: string | jwt.JwtPayload;
-}
+// Middleware de log para depuração
+app.use(async (ctx, next) => {
+  console.log(`--> ${ctx.request.method} ${ctx.request.url.pathname}`);
+  await next();
+});
 
-// --- Middleware de Autenticação JWT (Exemplo, não usado pelas rotas de IA) ---
-const authenticateToken = (
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
+app.use(oakCors()); // Habilita CORS para todas as rotas
 
-  if (token == null) {
-    track("auth_error", { type: "token_missing" });
-    return res.status(401).json({ error: "Token de autenticação não fornecido." });
-  }
+// Logger middleware
+app.use(async (ctx, next) => {
+  await next();
+  const rt = ctx.response.headers.get("X-Response-Time");
+  logger.info(`${ctx.request.method} ${ctx.request.url} - ${rt}`);
+});
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      track("auth_error", { type: "token_invalid", message: err.message });
-      return res.status(403).json({ error: "Token inválido ou expirado." });
-    }
-    req.user = user;
-    next();
-  });
+// Timing middleware
+app.use(async (ctx, next) => {
+  const start = Date.now();
+  await next();
+  const ms = Date.now() - start;
+  ctx.response.headers.set("X-Response-Time", `${ms}ms`);
+});
+
+
+// --- Roteamento Centralizado ---
+const rootRouter = new Router();
+
+rootRouter.get("/", (ctx) => {
+  ctx.response.body = "Backend do Wing rodando com Deno e Oak!";
+});
+
+// Lógica de criação das rotas da API movida para cá
+const promptBuilderMapping: { [key: string]: PromptBuilder } = {
+  fix: buildFixPrompt,
+  translate: buildTranslatePrompt,
+  summarize: buildSummarizePrompt,
+  rewrite: buildRewritePrompt,
 };
 
-// --- Rotas Públicas de Autenticação ---
-app.post("/auth/office", async (req, res) => {
-  const { msToken } = req.body;
-  if (!msToken) {
-    return res.status(400).json({ error: "msToken não fornecido." });
-  }
-  // Lógica de validação do msToken e geração do appJwt...
-  const userPayload = { sub: "user-id-from-ms-token", upn: "user@example.com" };
-  const appJwt = jwt.sign(userPayload, JWT_SECRET, { expiresIn: "15m" });
-  track("office_sso_success", { upn: userPayload.upn });
-  res.json({ appJwt });
+Object.entries(promptBuilderMapping).forEach(([actionName, promptBuilder]) => {
+  rootRouter.post(`/api/v1/${actionName}`, (ctx) => 
+    handleStreamRequest(ctx, promptBuilder, actionName)
+  );
 });
 
-app.post("/login", (req, res) => {
-  const { username, password } = req.body;
-  if (username === "admin" && password === "password") {
-    const userPayload = { name: username, roles: ["admin"] };
-    const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: "1h" });
-    track("user_login_success", { username });
-    res.json({ token });
-  } else {
-    track("user_login_failed", { username });
-    res.status(401).json({ error: "Credenciais inválidas." });
-  }
-});
 
-// --- Rotas Protegidas da API v1 ---
-app.use("/api/v1", apiRouter);
-app.use("/api/v1/chat", chatRouter);
+// Monta os outros roteadores
+rootRouter.use("/api/v1/chat", chatRouter.routes(), chatRouter.allowedMethods());
+rootRouter.use(authRouter.routes(), authRouter.allowedMethods()); // Rotas de auth na raiz
+
+// Aplica o roteador principal à aplicação
+app.use(rootRouter.routes());
+app.use(rootRouter.allowedMethods());
+
 
 // --- Inicialização do Servidor ---
-app.listen(port, () => {
-  logger.info(`Servidor backend rodando em http://localhost:${port}`);
+app.addEventListener("listen", ({ hostname, port, secure }) => {
+  logger.info(`Servidor backend rodando em ${secure ? "https://" : "http://"}${hostname ?? "localhost"}:${port}`);
 });
+
+await app.listen({ port });

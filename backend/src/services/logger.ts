@@ -1,17 +1,20 @@
-import pino from 'pino';
+import { log } from "../deps.ts";
 
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-  ...(process.env.NODE_ENV !== 'production' && {
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        colorize: true,
-        translateTime: 'SYS:standard',
-        ignore: 'pid,hostname',
-      },
+const LOG_LEVEL = (Deno.env.get("LOG_LEVEL") || "INFO").toUpperCase() as log.LevelName;
+
+await log.setup({
+  handlers: {
+    console: new log.ConsoleHandler(LOG_LEVEL, {
+      formatter: (record) => `${record.levelName} ${record.msg}`,
+    }),
+  },
+
+  loggers: {
+    default: {
+      level: LOG_LEVEL,
+      handlers: ["console"],
     },
-  }),
+  },
 });
 
-export default logger;
+export default log.getLogger();

@@ -1,4 +1,4 @@
-import { AIProvider } from "./providerInterface";
+import { AIProvider } from "./providerInterface.ts";
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
