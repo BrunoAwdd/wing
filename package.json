@@ -3,7 +3,8 @@
     "office-addin-cli": "^2.0.3",
     "office-addin-dev-certs": "^2.0.3",
     "office-addin-manifest": "^2.0.3",
-    "office-addin-sso": "^3.0.4"
+    "office-addin-sso": "^3.0.4",
+    "supabase": "^2.51.0"
   },
   "dependencies": {
     "inquirer": "^12.9.6"

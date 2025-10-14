@@ -12,7 +12,11 @@ export {
 } from "https://deno.land/x/oak@v16.1.0/mod.ts";
 export { oakCors } from "https://deno.land/x/cors@v1.2.2/mod.ts";
 export { create, verify, type Header, type Payload } from "https://deno.land/x/djwt@v3.0.2/mod.ts";
-export { RateLimiter } from "https://deno.land/x/oak_rate_limit@v0.1.1/mod.ts";
+export { Application, Router, Context } from "https://deno.land/x/oak@v12.6.1/mod.ts";
+export { oakCors } from "https://deno.land/x/cors@v1.2.2/mod.ts";
+export { Polly } from "https://deno.land/x/polly@v0.2.0/mod.ts";
+export { config } from "https://deno.land/x/dotenv@v3.2.2/mod.ts";
+export { createClient } from "jsr:@supabase/supabase-js@2";
 
 // Using npm modules in Deno
 export { GoogleGenerativeAI } from "npm:@google/generative-ai@0.24.1";
