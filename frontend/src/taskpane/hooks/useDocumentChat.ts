@@ -1,11 +1,11 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback } from "react";
 
 /* global Word, process */
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3003";
+const BACKEND_URL = process.env.BACKEND_URL || "";
 
 export interface ChatMessage {
-  author: 'user' | 'model';
+  author: "user" | "model";
   content: string;
 }
 
@@ -37,8 +37,8 @@ export const useDocumentChat = () => {
       }
 
       const response = await fetch(`${BACKEND_URL}/api/v1/chat/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentText }),
       });
 
@@ -49,11 +49,12 @@ export const useDocumentChat = () => {
 
       const { sessionId: newSessionId } = await response.json();
       setSessionId(newSessionId);
-      setMessages([{
-        author: 'model',
-        content: "Analisei o documento. O que você gostaria de saber ou fazer?"
-      }]);
-
+      setMessages([
+        {
+          author: "model",
+          content: "Analisei o documento. O que você gostaria de saber ou fazer?",
+        },
+      ]);
     } catch (e: any) {
       setError(e.message || "Ocorreu um erro desconhecido.");
       console.error(e);
@@ -62,53 +63,55 @@ export const useDocumentChat = () => {
     }
   }, []);
 
-  const sendMessage = useCallback(async (message: string) => {
-    if (!sessionId) {
-      setError("A sessão de chat não foi iniciada.");
-      return;
-    }
-
-    setMessages(prev => [...prev, { author: 'user', content: message }]);
-    setIsLoading(true);
-    setError(null);
-
-    // Adiciona um placeholder para a resposta do modelo
-    setMessages(prev => [...prev, { author: 'model', content: "" }]);
-
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/v1/chat/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, message }),
-      });
-
-      if (!response.ok || !response.body) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Falha ao enviar a mensagem.");
+  const sendMessage = useCallback(
+    async (message: string) => {
+      if (!sessionId) {
+        setError("A sessão de chat não foi iniciada.");
+        return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      setMessages((prev) => [...prev, { author: "user", content: message }]);
+      setIsLoading(true);
+      setError(null);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      // Adiciona um placeholder para a resposta do modelo
+      setMessages((prev) => [...prev, { author: "model", content: "" }]);
 
-        const chunk = decoder.decode(value, { stream: true });
-        setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          lastMessage.content += chunk;
-          return [...prev.slice(0, -1), lastMessage];
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/v1/chat/message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, message }),
         });
-      }
 
-    } catch (e: any) {
-      setError(e.message || "Ocorreu um erro desconhecido.");
-      console.error(e);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [sessionId]);
+        if (!response.ok || !response.body) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || "Falha ao enviar a mensagem.");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          setMessages((prev) => {
+            const lastMessage = prev[prev.length - 1];
+            lastMessage.content += chunk;
+            return [...prev.slice(0, -1), lastMessage];
+          });
+        }
+      } catch (e: any) {
+        setError(e.message || "Ocorreu um erro desconhecido.");
+        console.error(e);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [sessionId]
+  );
 
   return { messages, isLoading, error, startAnalysis, sendMessage, isSessionStarted: !!sessionId };
 };

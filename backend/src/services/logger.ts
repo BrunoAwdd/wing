@@ -1,6 +1,8 @@
 import { log } from "../deps.ts";
 
-const LOG_LEVEL = (Deno.env.get("LOG_LEVEL") || "INFO").toUpperCase() as log.LevelName;
+const LOG_LEVEL = (
+  Deno.env.get("LOG_LEVEL") || "INFO"
+).toUpperCase() as log.LevelName;
 
 await log.setup({
   handlers: {

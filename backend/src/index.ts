@@ -1,8 +1,10 @@
-import { Application, Router, oakCors } from "./deps.ts";
+import { Application, Router, oakCors, Context } from "./deps.ts";
 import logger from "./services/logger.ts";
-// import apiRouter from "./routes/api.routes.ts"; // Não vamos mais usar o roteador importado
 import chatRouter from "./routes/chat.routes.ts";
 import authRouter from "./routes/auth.routes.ts";
+import { agentsService } from "./services/agentsService.ts";
+import { extensionRegistry } from "./services/extensionRegistry.ts";
+import { maestroService } from "./services/maestroService.ts";
 
 // Dependências que estavam em api.routes.ts
 import { apiLimiter } from "./middlewares/rateLimiter.ts";
@@ -15,7 +17,6 @@ import {
   buildRewritePrompt,
 } from "./prompts.ts";
 
-
 // --- Configuração de Ambiente ---
 const port = parseInt(Deno.env.get("PORT") || "3003");
 
@@ -25,33 +26,45 @@ const app = new Application();
 // --- Middlewares ---
 
 // Middleware de log para depuração
-app.use(async (ctx, next) => {
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
   console.log(`--> ${ctx.request.method} ${ctx.request.url.pathname}`);
   await next();
 });
 
-app.use(oakCors()); // Habilita CORS para todas as rotas
+// CORS Rígido (RFC 012)
+app.use(
+  oakCors({
+    origin: [
+      "https://localhost:3000", // Frontend Dev
+      "https://localhost:3002", // Frontend Dev (Webpack default)
+      "https://wing.ai", // Prod
+      "null", // Office.js (Local)
+    ],
+    optionsSuccessStatus: 200,
+  })
+);
 
 // Logger middleware
-app.use(async (ctx, next) => {
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
   await next();
   const rt = ctx.response.headers.get("X-Response-Time");
-  logger.info(`${ctx.request.method} ${ctx.request.url} - ${rt}`);
+  logger.info(
+    `${ctx.request.method} ${ctx.request.url} - ${ctx.response.status} - ${rt}`
+  );
 });
 
 // Timing middleware
-app.use(async (ctx, next) => {
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
   const start = Date.now();
   await next();
   const ms = Date.now() - start;
   ctx.response.headers.set("X-Response-Time", `${ms}ms`);
 });
 
-
 // --- Roteamento Centralizado ---
 const rootRouter = new Router();
 
-rootRouter.get("/", (ctx) => {
+rootRouter.get("/", (ctx: Context) => {
   ctx.response.body = "Backend do Wing rodando com Deno e Oak!";
 });
 
@@ -64,24 +77,184 @@ const promptBuilderMapping: { [key: string]: PromptBuilder } = {
 };
 
 Object.entries(promptBuilderMapping).forEach(([actionName, promptBuilder]) => {
-  rootRouter.post(`/api/v1/${actionName}`, (ctx) => 
+  rootRouter.post(`/api/v1/${actionName}`, (ctx: Context) =>
     handleStreamRequest(ctx, promptBuilder, actionName)
   );
 });
 
+// Maestro Route
+rootRouter.post("/api/maestro/plan", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { instruction, context } = body;
+
+    if (!instruction) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Instruction is required" };
+      return;
+    }
+
+    const plan = await maestroService.generatePlan(instruction, context || []);
+    ctx.response.body = plan;
+  } catch (error) {
+    console.error("Maestro Error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Failed to generate plan" };
+  }
+});
+
+// Agents Route
+rootRouter.post("/api/agent/execute", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { agentId, instruction, context } = body;
+
+    if (!agentId || !instruction) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "agentId and instruction are required" };
+      return;
+    }
+
+    const response = await agentsService.executeAgent(
+      agentId,
+      instruction,
+      context || []
+    );
+    ctx.response.body = response;
+  } catch (error) {
+    console.error("Agent Error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = {
+      error: error instanceof Error ? error.message : "Failed to execute agent",
+    };
+  }
+});
 
 // Monta os outros roteadores
-rootRouter.use("/api/v1/chat", chatRouter.routes(), chatRouter.allowedMethods());
+rootRouter.use(
+  "/api/v1/chat",
+  chatRouter.routes(),
+  chatRouter.allowedMethods()
+);
 rootRouter.use(authRouter.routes(), authRouter.allowedMethods()); // Rotas de auth na raiz
+
+// Initialize Extensions
+await extensionRegistry.loadExtensions();
+
+// Extension Management Routes (Public for now, or use specific auth later)
+rootRouter.post("/api/extensions/agent", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { name, category, systemPrompt } = body;
+
+    if (!name || !systemPrompt) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Name and System Prompt are required" };
+      return;
+    }
+
+    const id = name.toLowerCase().replace(/\s+/g, "-");
+    const manifest = {
+      id: `wing.user.${id}`,
+      version: "1.0.0",
+      type: "agent",
+      config: {
+        visibleName: name,
+        category: category || "User",
+        manifest: {
+          id: id,
+          display_name: name,
+          model: "gemini-pro",
+          system_prompt: systemPrompt,
+          actions: [],
+          triggers: [],
+          input_schema: {
+            instruction: "string",
+            context: "array",
+          },
+          output_schema: {
+            thought_process: "string",
+            action_payload: {},
+          },
+        },
+      },
+    };
+
+    // @ts-ignore: manifest type mismatch workaround for now
+    await extensionRegistry.createAgentExtension(manifest);
+
+    ctx.response.body = { status: "created", agentId: id };
+  } catch (error) {
+    console.error("Create Agent Error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Failed to create agent" };
+  }
+});
+
+rootRouter.get("/api/extensions/agent", (ctx: Context) => {
+  const agents = extensionRegistry.getAgents();
+  ctx.response.body = Object.values(agents);
+});
+
+// Enterprise / Admin Routes
+import { rbacMiddleware } from "./middlewares/rbacMiddleware.ts";
+import { wingLocalService } from "./services/wingLocalService.ts";
+
+const adminRouter = new Router();
+adminRouter.use(rbacMiddleware("Admin"));
+
+adminRouter.post("/api/admin/secrets", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { key, value } = body;
+    await wingLocalService.storeSecurely(key, value);
+    ctx.response.body = { status: "stored", key };
+  } catch (e) {
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Failed to store secret" };
+  }
+});
+
+adminRouter.get("/api/admin/secrets/:key", async (ctx: Context) => {
+  const key = ctx.params.key;
+  const value = await wingLocalService.retrieveSecurely(key);
+  if (value) {
+    ctx.response.body = { key, value };
+  } else {
+    ctx.response.status = 404;
+    ctx.response.body = { error: "Secret not found" };
+  }
+});
+
+rootRouter.use(adminRouter.routes(), adminRouter.allowedMethods());
 
 // Aplica o roteador principal à aplicação
 app.use(rootRouter.routes());
 app.use(rootRouter.allowedMethods());
 
-
 // --- Inicialização do Servidor ---
 app.addEventListener("listen", ({ hostname, port, secure }) => {
-  logger.info(`Servidor backend rodando em ${secure ? "https://" : "http://"}${hostname ?? "localhost"}:${port}`);
+  logger.info(
+    `Servidor backend rodando em ${secure ? "https://" : "http://"}${
+      hostname ?? "localhost"
+    }:${port}`
+  );
 });
 
-await app.listen({ port });
+// Determine if we are in development (NODE_ENV=development)
+// Treat any environment that is NOT explicitly "production" as development
+const isDev = Deno.env.get("NODE_ENV") !== "production";
+
+if (isDev) {
+  // Development: use plain HTTP (no TLS) to avoid proxy EPROTO errors
+  await app.listen({ port, secure: false });
+} else {
+  // Production / secure mode: use HTTPS with self‑signed certs
+  const sslOptions = {
+    port,
+    secure: true,
+    cert: Deno.readTextFileSync("./cert.pem"),
+    key: Deno.readTextFileSync("./key.pem"),
+  };
+  await app.listen(sslOptions);
+}

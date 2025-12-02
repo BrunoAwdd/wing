@@ -1,0 +1,25 @@
+{
+  "id": "wing.user.nutricionista",
+  "version": "1.0.0",
+  "type": "agent",
+  "config": {
+    "visibleName": "nutricionista",
+    "category": "Productivity",
+    "manifest": {
+      "id": "nutricionista",
+      "display_name": "nutricionista",
+      "model": "gemini-pro",
+      "system_prompt": "deixe minhas receitas nutritivas",
+      "actions": [],
+      "triggers": [],
+      "input_schema": {
+        "instruction": "string",
+        "context": "array"
+      },
+      "output_schema": {
+        "thought_process": "string",
+        "action_payload": {}
+      }
+    }
+  }
+}

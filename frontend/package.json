@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "webpack --mode production",
+    "build:wasm": "RUSTFLAGS='--cfg=getrandom_backend=\"wasm_js\"' wasm-pack build ../wing-memory-engine --target web --out-dir ../frontend/src/pkg",
     "build:dev": "webpack --mode development",
     "dev-server": "webpack serve --mode development",
     "lint": "office-addin-lint check",
@@ -31,6 +32,7 @@
     "@fluentui/react-icons": "^2.0.310",
     "core-js": "^3.36.0",
     "es6-promise": "^4.2.8",
+    "idb-keyval": "^6.2.2",
     "react": "^18.2.0",
     "react-diff-viewer-continued": "^3.4.0",
     "react-dom": "^18.2.0",

@@ -16,13 +16,17 @@ import Rating from "./Rating";
 import SettingsPage from "./SettingsPage";
 import DocumentAnalysisPage from "./DocumentAnalysisPage";
 import HistoryPage from "./HistoryPage";
+import CopilotPage from "./CopilotPage";
+import { CreateAgentPage } from "./CreateAgentPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
 import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
 import LastUpdatesPage from "./LastUpdatesPage";
 import { useAIApi } from "../hooks/useAIApi";
+import { useAgents } from "../hooks/useAgents";
+import { documentObserver } from "../../services/documentObserver";
 
-/* global process */
+/* global console, document, setInterval, clearInterval */
 
 const useStyles = makeStyles({
   root: {
@@ -64,7 +68,9 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const styles = useStyles();
 
   // Estado de navegação
-  const [view, setView] = useState<"main" | "settings" | "documentAnalysis" | "history" | "lastUpdates">("main");
+  const [view, setView] = useState<
+    "main" | "settings" | "documentAnalysis" | "history" | "lastUpdates" | "copilot" | "createAgent"
+  >("main");
 
   // Estados gerenciados pelo App
   const [command, setCommand] = useState("fix");
@@ -89,7 +95,14 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   // Hooks customizados
   const { licenseToken, isOnline } = useAppSetup({ addLog, showFluentToast });
-  const { originalText, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, insertHtmlAtCursor, isUpdating } = useWordInteraction({ addLog });
+  const {
+    originalText,
+    acceptSingleSuggestion,
+    acceptMultipleSuggestions,
+    insertAtCursor,
+    insertHtmlAtCursor,
+    isUpdating,
+  } = useWordInteraction({ addLog });
   const {
     suggestedText,
     setSuggestedText,
@@ -108,6 +121,21 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     showFluentToast,
     setShowRating,
   });
+
+  // Load Agents (IndexedDB + Network)
+  const { agents: availableAgents, refreshAgents } = useAgents();
+
+  const handleAgentCreated = () => {
+    console.log("handleAgentCreated called in App.tsx");
+    refreshAgents();
+    setView("copilot");
+  };
+
+  useEffect(() => {
+    if (availableAgents.length > 0) {
+      addLog(`Agentes carregados: ${availableAgents.length}`, "info");
+    }
+  }, [availableAgents]);
 
   useEffect(() => {
     if (isUpdating) return;
@@ -198,7 +226,12 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   }
 
   if (view === "documentAnalysis") {
-    return <DocumentAnalysisPage onBack={() => setView("main")} insertHtmlAtCursor={insertHtmlAtCursor} />;
+    return (
+      <DocumentAnalysisPage
+        onBack={() => setView("main")}
+        insertHtmlAtCursor={insertHtmlAtCursor}
+      />
+    );
   }
 
   if (view === "history") {
@@ -213,6 +246,14 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         originalText={originalText}
       />
     );
+  }
+
+  if (view === "copilot") {
+    return <CopilotPage onBack={() => setView("main")} agents={availableAgents} />;
+  }
+
+  if (view === "createAgent") {
+    return <CreateAgentPage onBack={() => setView("main")} onAgentCreated={handleAgentCreated} />;
   }
 
   return (
@@ -252,6 +293,13 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onStartAnalysis={() => setView("documentAnalysis")}
           onShowHistory={() => setView("history")}
           onShowLastUpdates={() => setView("lastUpdates")}
+          onShowCopilot={() => setView("copilot")}
+          onShowCreateAgent={() => setView("createAgent")}
+          onSyncMemory={async () => {
+            addLog("Sincronizando memória...", "info");
+            await documentObserver.syncDocument();
+            addLog("Memória sincronizada.", "success");
+          }}
         />
       </div>
     </div>

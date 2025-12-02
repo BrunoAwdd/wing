@@ -1,6 +1,11 @@
 import * as React from "react";
 import { makeStyles, Input, Button, shorthands } from "@fluentui/react-components";
-import { Send24Regular, Settings24Regular, History24Regular, ArrowSyncCheckmark24Regular } from "@fluentui/react-icons";
+import {
+  Send24Regular,
+  Settings24Regular,
+  History24Regular,
+  ArrowSyncCheckmark24Regular,
+} from "@fluentui/react-icons";
 
 const useStyles = makeStyles({
   wrapper: {
@@ -32,6 +37,9 @@ interface CommandConsoleProps {
   onStartAnalysis: () => void; // Nova prop para análise de documento
   onShowHistory: () => void;
   onShowLastUpdates: () => void;
+  onSyncMemory: () => void;
+  onShowCopilot: () => void;
+  onShowCreateAgent: () => void;
 }
 
 const CommandConsole: React.FC<CommandConsoleProps> = ({
@@ -43,6 +51,9 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
   onStartAnalysis,
   onShowHistory,
   onShowLastUpdates,
+  onSyncMemory,
+  onShowCopilot,
+  onShowCreateAgent,
 }) => {
   const styles = useStyles();
 
@@ -63,6 +74,19 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
         </Button>
         <Button appearance="primary" onClick={onStartAnalysis}>
           Analisar Documento
+        </Button>
+        <Button appearance="subtle" icon={<ArrowSyncCheckmark24Regular />} onClick={onSyncMemory}>
+          Sincronizar Memória
+        </Button>
+        <Button
+          appearance="primary"
+          onClick={onShowCopilot}
+          style={{ backgroundColor: "#0078d4", color: "white" }}
+        >
+          Wing Copilot
+        </Button>
+        <Button appearance="outline" onClick={onShowCreateAgent}>
+          + Agente
         </Button>
       </div>
       <div className={styles.commandConsole}>

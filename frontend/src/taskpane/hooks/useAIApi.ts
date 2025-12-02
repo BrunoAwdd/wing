@@ -16,7 +16,7 @@ interface AIApiProps {
   setShowRating: (show: boolean) => void;
 }
 
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3003";
+const BACKEND_URL = process.env.BACKEND_URL || "";
 
 export const useAIApi = ({
   licenseToken,
@@ -65,7 +65,10 @@ export const useAIApi = ({
     setIsLoading(true); // Ativa o loading
     setLastCommand(commandToExecute);
     addLog(`Enviando comando: "${commandToExecute}"`, "info");
-    track("prompt_sent", { command: commandToExecute, text_length: originalText.map(p => p.text).join('\n').length });
+    track("prompt_sent", {
+      command: commandToExecute,
+      text_length: originalText.map((p) => p.text).join("\n").length,
+    });
 
     try {
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
@@ -139,5 +142,13 @@ export const useAIApi = ({
     }
   };
 
-  return { suggestedText, setSuggestedText, isSuggestionAvailable, setIsSuggestionAvailable, fetchSuggestion, lastCommand, isLoading };
+  return {
+    suggestedText,
+    setSuggestedText,
+    isSuggestionAvailable,
+    setIsSuggestionAvailable,
+    fetchSuggestion,
+    lastCommand,
+    isLoading,
+  };
 };

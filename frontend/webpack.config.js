@@ -19,7 +19,10 @@ module.exports = async (env, options) => {
   const dev = options.mode === "development";
   const config = {
     devtool: "source-map",
-    context: path.resolve(__dirname, './'),
+    experiments: {
+      asyncWebAssembly: true,
+    },
+    context: path.resolve(__dirname, "./"),
     entry: {
       polyfill: ["core-js/stable", "regenerator-runtime/runtime"],
       react: ["react", "react-dom"],
@@ -102,6 +105,19 @@ module.exports = async (env, options) => {
     devServer: {
       host: "0.0.0.0",
       hot: true,
+      // Proxy only in development mode (options.mode === 'development')
+      ...(options.mode === "development"
+        ? {
+            proxy: [
+              {
+                context: "/api",
+                target: "http://localhost:3003", // backend dev (plain HTTP in dev)
+                secure: false, // aceita certificado auto‑assinado
+                changeOrigin: true,
+              },
+            ],
+          }
+        : {}),
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Permissions-Policy": "clipboard-write=*",
@@ -109,7 +125,10 @@ module.exports = async (env, options) => {
       allowedHosts: "all",
       server: {
         type: "https",
-        options: env.WEBPACK_BUILD || options.https !== undefined ? options.https : await getHttpsOptions(),
+        options:
+          env.WEBPACK_BUILD || options.https !== undefined
+            ? options.https
+            : await getHttpsOptions(),
       },
       port: process.env.npm_package_config_dev_server_port || 3000,
     },
