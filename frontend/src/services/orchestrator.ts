@@ -32,7 +32,14 @@ const executeAgent = async (
 };
 
 export const orchestrator = {
-  generatePlan: async (instruction: string): Promise<PlanResponse> => {
+  generatePlan: async (
+    instruction: string,
+    options?: {
+      availableAgents?: string[];
+      availableTools?: string[];
+      availableModels?: string[];
+    }
+  ): Promise<PlanResponse> => {
     // 1. Sync memory to ensure we have latest context
     await documentObserver.syncDocument();
 
@@ -43,7 +50,7 @@ export const orchestrator = {
     const contextResults: any[] = queryText(instruction, 5) as any[];
     const contextStrings = contextResults.map((c) => c.text);
 
-    return await maestroClient.requestPlan(instruction, contextStrings);
+    return await maestroClient.requestPlan(instruction, contextStrings, options);
   },
 
   executePlan: async (

@@ -15,14 +15,22 @@ export interface PlanResponse {
 const API_BASE_URL = "/api";
 
 export const maestroClient = {
-  requestPlan: async (instruction: string, context: string[]): Promise<PlanResponse> => {
+  requestPlan: async (
+    instruction: string, 
+    context: string[],
+    options?: {
+      availableAgents?: string[];
+      availableTools?: string[];
+      availableModels?: string[];
+    }
+  ): Promise<PlanResponse> => {
     try {
       const response = await fetch(`${API_BASE_URL}/maestro/plan`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ instruction, context }),
+        body: JSON.stringify({ instruction, context, options }),
       });
 
       if (!response.ok) {
