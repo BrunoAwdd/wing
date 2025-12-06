@@ -11,6 +11,7 @@ import {
   shorthands,
 } from "@fluentui/react-components";
 import { ArrowLeft24Regular } from "@fluentui/react-icons";
+import { useMicrosoftAuth } from "../hooks/useMicrosoftAuth";
 
 const useStyles = makeStyles({
   root: {
@@ -61,6 +62,8 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   onBack,
 }) => {
   const styles = useStyles();
+  const { login, loginWithDialog, isSSOFailed, isAuthenticated, user, isLoading, error } =
+    useMicrosoftAuth();
 
   return (
     <div className={styles.root}>
@@ -71,7 +74,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
       <div className={styles.content}>
         <div className={styles.field}>
           <Label id="tone-radiogroup-label">Tom da Reescrita/Correção</Label>
-          <RadioGroup value={tone} onChange={(_, data) => onToneChange(data.value as string)} aria-labelledby="tone-radiogroup-label">
+          <RadioGroup
+            value={tone}
+            onChange={(_, data) => onToneChange(data.value as string)}
+            aria-labelledby="tone-radiogroup-label"
+          >
             <Radio value="formal" label="Formal" />
             <Radio value="casual" label="Casual" />
             <Radio value="profissional" label="Profissional" />
@@ -81,7 +88,36 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
 
         <div className={styles.field}>
           <Label htmlFor="language-input">Idioma de Destino (Tradução)</Label>
-          <Input id="language-input" value={language} onChange={(_, data) => onLanguageChange(data.value)} />
+          <Input
+            id="language-input"
+            value={language}
+            onChange={(_, data) => onLanguageChange(data.value)}
+          />
+        </div>
+
+        <div className={styles.field}>
+          <Label>Licença Microsoft</Label>
+          {isAuthenticated ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              <Text>Conectado como: {user?.email}</Text>
+              <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+                Plano: {user?.plan?.toUpperCase()}
+              </Text>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <Button appearance="primary" onClick={login} disabled={isLoading}>
+                {isLoading ? "Verificando..." : "Verificar Licença (Microsoft Store)"}
+              </Button>
+
+              {isSSOFailed && (
+                <Button appearance="secondary" onClick={loginWithDialog} disabled={isLoading}>
+                  Verificar com Conta Pessoal
+                </Button>
+              )}
+            </div>
+          )}
+          {error && <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>}
         </div>
       </div>
     </div>

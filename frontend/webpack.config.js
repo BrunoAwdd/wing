@@ -98,6 +98,11 @@ module.exports = async (env, options) => {
         template: "./src/commands/commands.html",
         chunks: ["polyfill", "commands"],
       }),
+      new HtmlWebpackPlugin({
+        filename: "auth-fallback.html",
+        template: "./src/auth/auth-fallback.html",
+        chunks: ["polyfill"],
+      }),
       new webpack.ProvidePlugin({
         Promise: ["es6-promise", "Promise"],
       }),
