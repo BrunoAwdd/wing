@@ -16,7 +16,8 @@ create table if not exists accounts (
 create table if not exists subscriptions (
   id uuid primary key default uuid_generate_v4(),
   account_id uuid references accounts(id) on delete cascade not null,
-  stripe_subscription_id text unique not null,
+  external_subscription_id text unique not null, -- Was stripe_subscription_id
+  provider text not null check (provider in ('stripe', 'microsoft')), -- New field
   plan text not null check (plan in ('free', 'pro', 'team')),
   status text not null check (status in ('trialing', 'active', 'past_due', 'canceled', 'incomplete')),
   current_period_end timestamptz not null,
@@ -63,7 +64,7 @@ create table if not exists webhook_events (
 -- Indexes for performance
 create index if not exists idx_accounts_email on accounts(email);
 create index if not exists idx_accounts_stripe_customer_id on accounts(stripe_customer_id);
-create index if not exists idx_subscriptions_stripe_subscription_id on subscriptions(stripe_subscription_id);
+create index if not exists idx_subscriptions_external_subscription_id on subscriptions(external_subscription_id);
 create index if not exists idx_licences_key on licences(key);
 create index if not exists idx_usage_monthly_account_yyyymm on usage_monthly(account_id, yyyymm);
 

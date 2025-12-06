@@ -18,21 +18,32 @@ class GeminiProvider implements AIProvider {
 
   async *generateContentStream(
     prompt: string,
-    entitlement: string
+    options?: {
+      model?: string;
+      temperature?: number;
+      entitlement?: string;
+      systemInstruction?: string;
+    }
   ): AsyncGenerator<string, void, unknown> {
-    // Seleciona o modelo com base no nível da licença
-    const modelName =
-      entitlement === "Paid"
-        ? "gemini-2.5-pro" // Modelo superior para usuários pagos
-        : this.model; // Modelo padrão (gemini-2.5-flash) para usuários gratuitos
+    // Seleciona o modelo com base no nível da licença ou opção explícita
+    let modelName = this.model;
+
+    if (options?.model) {
+      modelName = options.model;
+    } else if (options?.entitlement === "Paid") {
+      modelName = "gemini-2.5-pro";
+    }
 
     const model = this.genAI.getGenerativeModel({
       model: modelName,
-      generationConfig: { temperature: 0 },
+      generationConfig: { temperature: options?.temperature ?? 0 },
+      systemInstruction: options?.systemInstruction,
     });
 
     console.log(
-      `Usando modelo: ${modelName} para o nível de acesso: ${entitlement}`
+      `Usando modelo: ${modelName} para o nível de acesso: ${
+        options?.entitlement ?? "Unknown"
+      }`
     ); // Log para depuração
 
     const result = await model.generateContentStream(prompt);
@@ -44,9 +55,20 @@ class GeminiProvider implements AIProvider {
 
   async *generateChatStream(
     prompt: string,
-    history: any[]
+    history: any[],
+    options?: {
+      model?: string;
+      temperature?: number;
+      entitlement?: string;
+      systemInstruction?: string;
+    }
   ): AsyncGenerator<string, void, unknown> {
-    const model = this.genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    const modelName = options?.model || GEMINI_MODEL;
+    const model = this.genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: { temperature: options?.temperature ?? 0 },
+      systemInstruction: options?.systemInstruction,
+    });
     const chat = model.startChat({
       history: history,
     });

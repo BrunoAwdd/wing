@@ -1,4 +1,5 @@
 import { generateTextStream } from "./aiService.ts";
+import { extensionRegistry } from "./extensionRegistry.ts";
 
 export interface AgentManifest {
   id: string;
@@ -6,6 +7,7 @@ export interface AgentManifest {
   temperature: number;
   allowedTools: string[];
   schema: object;
+  model?: string; // Default model for this agent
 }
 
 export interface AgentResponse {
@@ -13,7 +15,22 @@ export interface AgentResponse {
   action_payload: any;
 }
 
-const AGENT_REGISTRY: Record<string, AgentManifest> = {
+export interface AgentCustomization {
+  baseAgentId: string;
+  model?: string;
+  temperature?: number;
+  systemOverride?: string;
+  additionalConstraints?: string[];
+}
+
+export interface AgentPack {
+  id: string;
+  label: string;
+  agents: string[]; // IDs of agents in this pack
+}
+
+// --- Core Agents Registry ---
+const CORE_AGENTS: Record<string, AgentManifest> = {
   Legal: {
     id: "Legal",
     system: `
@@ -92,46 +109,56 @@ RULES:
   },
 };
 
-import { extensionRegistry } from "./extensionRegistry.ts";
-
 export const agentsService = {
+  getAgent: (agentId: string): AgentManifest | undefined => {
+    const allAgents = { ...CORE_AGENTS, ...extensionRegistry.getAgents() };
+
+    // Exact match
+    if (allAgents[agentId]) return allAgents[agentId];
+
+    // Case insensitive
+    const lowerId = agentId.toLowerCase();
+    if (allAgents[lowerId]) return allAgents[lowerId];
+
+    // Prefix match
+    const prefixedId = `wing.user.${lowerId}`;
+    if (allAgents[prefixedId]) return allAgents[prefixedId];
+
+    // Suffix/Partial match
+    const foundId = Object.keys(allAgents).find(
+      (key) =>
+        key.toLowerCase().endsWith(agentId.toLowerCase()) ||
+        key.toLowerCase().includes(agentId.toLowerCase())
+    );
+    if (foundId) return allAgents[foundId];
+
+    return undefined;
+  },
+
   executeAgent: async (
     agentId: string,
     instruction: string,
-    context: string[]
+    context: string[],
+    customization?: AgentCustomization
   ): Promise<AgentResponse> => {
-    // Merge Core Agents with Registry Agents
-    const allAgents = { ...AGENT_REGISTRY, ...extensionRegistry.getAgents() };
-
-    // Flexible Lookup Strategy
-    let agent = allAgents[agentId];
-
-    if (!agent) {
-      // Try lowercase
-      const lowerId = agentId.toLowerCase();
-      agent = allAgents[lowerId];
-
-      if (!agent) {
-        // Try with wing.user. prefix
-        const prefixedId = `wing.user.${lowerId}`;
-        agent = allAgents[prefixedId];
-      }
-    }
-
-    if (!agent) {
-      // Last resort: search by visible name or suffix
-      const foundId = Object.keys(allAgents).find(
-        (key) =>
-          key.toLowerCase().endsWith(agentId.toLowerCase()) ||
-          key.toLowerCase().includes(agentId.toLowerCase())
-      );
-      if (foundId) {
-        agent = allAgents[foundId];
-      }
-    }
+    let agent = agentsService.getAgent(agentId);
 
     if (!agent) {
       throw new Error(`Agent '${agentId}' not found.`);
+    }
+
+    // Apply Customizations
+    const model = customization?.model || agent.model;
+    const temperature = customization?.temperature ?? agent.temperature;
+    let systemPrompt = customization?.systemOverride || agent.system;
+
+    if (
+      customization?.additionalConstraints &&
+      customization.additionalConstraints.length > 0
+    ) {
+      systemPrompt += `\nADDITIONAL CONSTRAINTS:\n- ${customization.additionalConstraints.join(
+        "\n- "
+      )}`;
     }
 
     const prompt = `
@@ -161,10 +188,11 @@ IMPORTANT:
 
     try {
       let fullResponse = "";
-      // We use the stream but buffer it to get the full JSON.
-      // Note: Temperature control is not directly exposed in generateTextStream in this V1,
-      // but the System Prompt heavily influences the behavior.
-      const stream = generateTextStream(`${agent.system}\n\n${prompt}`, "Free");
+      const stream = generateTextStream(`${systemPrompt}\n\n${prompt}`, {
+        model,
+        temperature,
+        systemInstruction: systemPrompt, // Some providers support system instruction separate from prompt
+      });
 
       for await (const chunk of stream) {
         fullResponse += chunk;
@@ -174,16 +202,14 @@ IMPORTANT:
 
       // Robust JSON Extraction
       let jsonStr = fullResponse.trim();
-
-      // 1. Remove Markdown code blocks
       jsonStr = jsonStr.replace(/```json/g, "").replace(/```/g, "");
-
-      // 2. Extract JSON object if there's extra text
       const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         jsonStr = jsonMatch[0];
-      } else if (jsonStr.includes('"thought_process"') || jsonStr.includes("thought_process")) {
-        // Fallback: If no outer braces but contains keys, try wrapping
+      } else if (
+        jsonStr.includes('"thought_process"') ||
+        jsonStr.includes("thought_process")
+      ) {
         console.warn("[Agents] No outer braces found. Wrapping in {}.");
         jsonStr = `{${jsonStr}}`;
       }
@@ -195,8 +221,6 @@ IMPORTANT:
         console.warn(
           "[Agents] JSON Parse Failed. Attempting to fix common errors..."
         );
-        // Fallback: Try to fix unquoted keys (simple heuristic) or just throw
-        // For now, let's just throw but with the raw response for debugging
         throw new Error(
           `Failed to parse JSON: ${e.message}. Raw: ${fullResponse}`
         );

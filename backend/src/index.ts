@@ -86,7 +86,7 @@ Object.entries(promptBuilderMapping).forEach(([actionName, promptBuilder]) => {
 rootRouter.post("/api/maestro/plan", async (ctx: Context) => {
   try {
     const body = await ctx.request.body.json();
-    const { instruction, context } = body;
+    const { instruction, context, options } = body;
 
     if (!instruction) {
       ctx.response.status = 400;
@@ -94,7 +94,11 @@ rootRouter.post("/api/maestro/plan", async (ctx: Context) => {
       return;
     }
 
-    const plan = await maestroService.generatePlan(instruction, context || []);
+    const plan = await maestroService.generatePlan(
+      instruction,
+      context || [],
+      options
+    );
     ctx.response.body = plan;
   } catch (error) {
     console.error("Maestro Error:", error);
@@ -194,6 +198,29 @@ rootRouter.post("/api/extensions/agent", async (ctx: Context) => {
 rootRouter.get("/api/extensions/agent", (ctx: Context) => {
   const agents = extensionRegistry.getAgents();
   ctx.response.body = Object.values(agents);
+});
+
+// Microsoft Auth Route
+import { microsoftLicensingService } from "./services/microsoftLicensingService.ts";
+
+rootRouter.post("/api/auth/microsoft", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { token } = body;
+
+    if (!token) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Token is required" };
+      return;
+    }
+
+    const result = await microsoftLicensingService.syncLicense(token);
+    ctx.response.body = result;
+  } catch (error) {
+    console.error("Microsoft Auth Error:", error);
+    ctx.response.status = 401;
+    ctx.response.body = { error: "Failed to authenticate with Microsoft" };
+  }
 });
 
 // Enterprise / Admin Routes

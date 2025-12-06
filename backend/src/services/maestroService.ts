@@ -58,30 +58,57 @@ RULES:
 export const maestroService = {
   generatePlan: async (
     instruction: string,
-    context: string[]
+    context: string[],
+    options?: {
+      availableAgents?: string[]; // List of agent IDs or descriptions
+      availableTools?: string[];
+      availableModels?: string[];
+    }
   ): Promise<PlanResponse> => {
-    // 1. Fetch Dynamic Agents
-    const agents = extensionRegistry.getAgents();
-    const agentsListStr = Object.values(agents)
-      .map((agent: any) => {
-        const name = agent.config?.visibleName || agent.id;
-        const desc =
-          agent.config?.manifest?.system_prompt?.slice(0, 100) ||
-          agent.config?.category ||
-          "General Agent";
-        return `- "${name}": ${desc.replace(/\n/g, " ")}...`;
-      })
-      .join("\n");
+    // 1. Fetch Dynamic Agents (if not provided, fallback to registry)
+    let agentsListStr = "";
+
+    if (options?.availableAgents && options.availableAgents.length > 0) {
+      // If provided by client (e.g. from a Pack), use them.
+      // We might need to fetch their descriptions if only IDs are passed.
+      // For now, assume client passes IDs, and we look them up in registry.
+      const agents = extensionRegistry.getAgents();
+      // Also include Core Agents
+      const allAgents = { ...agents }; // TODO: Import CORE_AGENTS from agentsService if needed, or rely on extensionRegistry having them if registered.
+      // Actually, agentsService has CORE_AGENTS private. We should probably expose them or just rely on what's passed.
+      // If the client passes a list of strings, we format them.
+      agentsListStr = options.availableAgents.map((a) => `- ${a}`).join("\n");
+    } else {
+      // Fallback to all registered agents
+      const agents = extensionRegistry.getAgents();
+      agentsListStr = Object.values(agents)
+        .map((agent: any) => {
+          const name = agent.config?.visibleName || agent.id;
+          const desc =
+            agent.config?.manifest?.system_prompt?.slice(0, 100) ||
+            agent.config?.category ||
+            "General Agent";
+          return `- "${name}": ${desc.replace(/\n/g, " ")}...`;
+        })
+        .join("\n");
+    }
+
+    const toolsListStr = options?.availableTools
+      ? JSON.stringify(options.availableTools)
+      : JSON.stringify(SYSTEM_TOOLS_MANIFEST, null, 2);
+    const modelsListStr = options?.availableModels
+      ? options.availableModels.join(", ")
+      : "gemini-flash, gpt-4o-mini, claude-3.5-sonnet";
 
     // 2. Inject into Prompt
     let systemPrompt = BASE_SYSTEM_PROMPT.replace(
       "{{AGENTS_LIST}}",
       agentsListStr
     );
-    systemPrompt = systemPrompt.replace(
-      "{{SYSTEM_TOOLS_JSON}}",
-      JSON.stringify(SYSTEM_TOOLS_MANIFEST, null, 2)
-    );
+    systemPrompt = systemPrompt.replace("{{SYSTEM_TOOLS_JSON}}", toolsListStr);
+
+    // Inject Models if needed in prompt (optional, Maestro might not need to know models per step unless assigning)
+    systemPrompt += `\nAVAILABLE MODELS: ${modelsListStr}\n`;
 
     const prompt = `
 USER INSTRUCTION: "${instruction}"
