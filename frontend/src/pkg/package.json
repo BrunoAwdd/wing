@@ -1,0 +1,15 @@
+{
+  "name": "wing-memory-engine",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "wing_memory_engine_bg.wasm",
+    "wing_memory_engine.js",
+    "wing_memory_engine.d.ts"
+  ],
+  "main": "wing_memory_engine.js",
+  "types": "wing_memory_engine.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
