@@ -253,6 +253,10 @@ adminRouter.get("/api/admin/secrets/:key", async (ctx: Context) => {
   }
 });
 
+// MCP Routes (External Client)
+import mcpRouter from "./routes/mcpRoutes.ts";
+rootRouter.use("/api/mcp", mcpRouter.routes(), mcpRouter.allowedMethods());
+
 rootRouter.use(adminRouter.routes(), adminRouter.allowedMethods());
 
 // Aplica o roteador principal à aplicação
@@ -262,8 +266,7 @@ app.use(rootRouter.allowedMethods());
 // --- Inicialização do Servidor ---
 app.addEventListener("listen", ({ hostname, port, secure }) => {
   logger.info(
-    `Servidor backend rodando em ${secure ? "https://" : "http://"}${
-      hostname ?? "localhost"
+    `Servidor backend rodando em ${secure ? "https://" : "http://"}${hostname ?? "localhost"
     }:${port}`
   );
 });

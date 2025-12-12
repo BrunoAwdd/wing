@@ -31,7 +31,7 @@ class GeminiProvider implements AIProvider {
     if (options?.model) {
       modelName = options.model;
     } else if (options?.entitlement === "Paid") {
-      modelName = "gemini-2.5-pro";
+      modelName = "gemini-2.5-flash";
     }
 
     const model = this.genAI.getGenerativeModel({
@@ -41,8 +41,7 @@ class GeminiProvider implements AIProvider {
     });
 
     console.log(
-      `Usando modelo: ${modelName} para o nível de acesso: ${
-        options?.entitlement ?? "Unknown"
+      `Usando modelo: ${modelName} para o nível de acesso: ${options?.entitlement ?? "Unknown"
       }`
     ); // Log para depuração
 

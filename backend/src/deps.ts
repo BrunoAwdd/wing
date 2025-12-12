@@ -17,5 +17,6 @@ export { createClient } from "jsr:@supabase/supabase-js@2";
 
 // Using npm modules in Deno
 export { GoogleGenerativeAI } from "npm:@google/generative-ai@0.24.1";
+export { default as JSON5 } from "npm:json5@2.2.3";
 
 export { log };

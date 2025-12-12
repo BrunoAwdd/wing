@@ -120,6 +120,12 @@ export const billingService = {
   validateLicenseKey: async (
     key: string
   ): Promise<{ valid: boolean; accountId?: string; plan?: string }> => {
+    // DEV BYPASS: In development, always return valid PRO license
+    if (Deno.env.get("NODE_ENV") !== "production") {
+      console.log("[Billing] Dev mode detected. Bypassing license check.");
+      return { valid: true, accountId: "dev-user", plan: "pro" };
+    }
+
     const { data: license, error } = await supabase
       .from("licences")
       .select("*, accounts(id, email), subscriptions(plan, status)")

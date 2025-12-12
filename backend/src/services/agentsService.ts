@@ -148,7 +148,15 @@ export const agentsService = {
     }
 
     // Apply Customizations
-    const model = customization?.model || agent.model;
+    let model = customization?.model || agent.model;
+
+    // HOTFIX: 'gemini-pro' is deprecated/404 on v1beta. Force default if encountered.
+    if (model === "gemini-pro") {
+      console.warn(
+        `[Agents] Model 'gemini-pro' is deprecated. Falling back to default provider model.`
+      );
+      model = undefined;
+    }
     const temperature = customization?.temperature ?? agent.temperature;
     let systemPrompt = customization?.systemOverride || agent.system;
 
@@ -178,6 +186,7 @@ OUTPUT FORMAT (JSON ONLY):
 }
 
 IMPORTANT:
+- **ESCAPE NEWLINES**: If the "content" field has multiple lines, you MUST escape them as "\\n" (backslash n). Do NOT print literal newlines inside the JSON string.
 - If the instruction implies writing, editing, or commenting, YOU MUST populate "action_payload".
 - Use "insert" to add new text.
 - Use "replace" to rewrite existing text.
@@ -202,10 +211,25 @@ IMPORTANT:
 
       // Robust JSON Extraction
       let jsonStr = fullResponse.trim();
-      jsonStr = jsonStr.replace(/```json/g, "").replace(/```/g, "");
-      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        jsonStr = jsonMatch[0];
+
+      // 1. Try to find the first block ```json ... ```
+      const markdownMatch = jsonStr.match(/```json\s*([\s\S]*?)\s*```/i);
+      if (markdownMatch) {
+        jsonStr = markdownMatch[1];
+      } else {
+        // 2. Try to find just ``` ... ```
+        const blockMatch = jsonStr.match(/```\s*([\s\S]*?)\s*```/);
+        if (blockMatch) {
+          jsonStr = blockMatch[1];
+        }
+      }
+
+      // 3. Fallback: Find the first { and the last }
+      const firstBrace = jsonStr.indexOf("{");
+      const lastBrace = jsonStr.lastIndexOf("}");
+
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
       } else if (
         jsonStr.includes('"thought_process"') ||
         jsonStr.includes("thought_process")
@@ -216,14 +240,20 @@ IMPORTANT:
 
       let response: AgentResponse;
       try {
+        // Try standard build-in JSON parse first
         response = JSON.parse(jsonStr);
       } catch (e: any) {
-        console.warn(
-          "[Agents] JSON Parse Failed. Attempting to fix common errors..."
-        );
-        throw new Error(
-          `Failed to parse JSON: ${e.message}. Raw: ${fullResponse}`
-        );
+        console.warn("[Agents] Standard JSON parse failed. Trying JSON5...", e.message);
+        try {
+          // @ts-ignore: JSON5 imported from deps
+          const { JSON5 } = await import("../deps.ts");
+          response = JSON5.parse(jsonStr) as AgentResponse;
+        } catch (json5Error: any) {
+          console.error("[Agents] JSON5 Parse Failed.", json5Error);
+          throw new Error(
+            `Failed to parse JSON: ${e.message} / ${json5Error.message}. Raw: ${fullResponse}`
+          );
+        }
       }
       return response;
     } catch (error) {
