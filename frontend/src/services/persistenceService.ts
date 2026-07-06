@@ -2,11 +2,11 @@ import { get, set, del } from "idb-keyval";
 
 export const persistenceService = {
   /**
-   * Saves the serialized index to IndexedDB.
+   * Saves the serialized index (bincode-encoded bytes) to IndexedDB.
    * @param docId The unique identifier for the document (e.g., URL).
-   * @param data The serialized index (any).
+   * @param data The serialized index.
    */
-  saveIndex: async (docId: string, data: any): Promise<void> => {
+  saveIndex: async (docId: string, data: Uint8Array): Promise<void> => {
     try {
       await set(`wing_index_${docId}`, data);
       console.log(`[Persistence] Index saved for ${docId}`);
@@ -18,11 +18,11 @@ export const persistenceService = {
   /**
    * Loads the serialized index from IndexedDB.
    * @param docId The unique identifier for the document.
-   * @returns The serialized index or null if not found.
+   * @returns The serialized index bytes or null if not found.
    */
-  loadIndex: async (docId: string): Promise<any | null> => {
+  loadIndex: async (docId: string): Promise<Uint8Array | null> => {
     try {
-      const data = await get<any>(`wing_index_${docId}`);
+      const data = await get<Uint8Array>(`wing_index_${docId}`);
       if (data) {
         console.log(`[Persistence] Index loaded for ${docId}`);
         return data;

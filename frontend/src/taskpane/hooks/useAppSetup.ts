@@ -52,7 +52,14 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
           console.log(`[Persistence] Loaded existing docId: ${docId}`);
         }
 
-        await initEngine(docId);
+        try {
+          await initEngine(docId);
+        } catch (e) {
+          console.error("[WingMemoryEngine] Failed to initialize:", e);
+          addLog("Busca semântica no documento indisponível nesta sessão.", "info");
+          showFluentToast("Contexto semântico indisponível. O restante do Wing funciona normalmente.", "info");
+        }
+
         track("panel_opened");
         addLog("Bem-vindo ao Wing!", "info");
       } catch (e) {

@@ -1,72 +1,70 @@
 import init, { WingMemoryEngine } from "../pkg/wing_memory_engine";
 import { persistenceService } from "./persistenceService";
+import { get as idbGet, set as idbSet } from "idb-keyval";
 
 let engine: WingMemoryEngine | null = null;
 let currentDocId: string | null = null;
+
+// Model assets are bundled and served from the add-in's own origin (see
+// webpack.config.js `assets/model` copy pattern) instead of being fetched
+// from huggingface.co at runtime, so the feature doesn't depend on an
+// external host being reachable from the user's network.
+const MODEL_ASSET_VERSION = "all-MiniLM-L6-v2-v1";
+const MODEL_URL = "/assets/model/model.safetensors";
+const CONFIG_URL = "/assets/model/config.json";
+const TOKENIZER_URL = "/assets/model/tokenizer.json";
+
+const loadAssetCached = async (url: string, cacheKey: string): Promise<Uint8Array> => {
+  const cached = await idbGet<ArrayBuffer>(cacheKey);
+  if (cached) {
+    return new Uint8Array(cached);
+  }
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  }
+  const buffer = await res.arrayBuffer();
+  await idbSet(cacheKey, buffer);
+  return new Uint8Array(buffer);
+};
 
 export const initEngine = async (docId: string) => {
   if (engine) return engine;
   currentDocId = docId;
 
-  try {
-    await init();
-    engine = new WingMemoryEngine();
-    console.log("[WingMemoryEngine] WASM initialized.");
+  await init();
+  const newEngine = new WingMemoryEngine();
+  console.log("[WingMemoryEngine] WASM initialized.");
 
-    // Load persisted index if available
-    const persistedData = await persistenceService.loadIndex(docId);
-    if (persistedData) {
-      try {
-        engine.load(persistedData);
-        console.log(`[WingMemoryEngine] Loaded persisted index for ${docId}.`);
-      } catch (e) {
-        console.error("[WingMemoryEngine] Failed to deserialize index:", e);
-      }
-    }
-
-    // Load Model
-    // TODO: Point to a real URL or local asset. For now, we expect the user to have this file or we fail gracefully.
-    // In a real app, we might use a CDN or bundled asset.
-    const modelUrl =
-      "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.safetensors";
-    const configUrl =
-      "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json";
-    const tokenizerUrl =
-      "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json";
-
-    console.log("[WingMemoryEngine] Fetching model and tokenizer...");
-    // Note: This might fail with CORS if not proxied or allowed.
-    // For local dev, we might need to download these files to `frontend/assets`.
-
+  // Load persisted index if available
+  const persistedData = await persistenceService.loadIndex(docId);
+  if (persistedData) {
     try {
-      const [modelRes, configRes, tokenizerRes] = await Promise.all([
-        fetch(modelUrl),
-        fetch(configUrl),
-        fetch(tokenizerUrl),
-      ]);
-
-      if (!modelRes.ok || !configRes.ok || !tokenizerRes.ok) {
-        throw new Error(
-          `Failed to fetch assets: ${modelRes.status} ${configRes.status} ${tokenizerRes.status}`
-        );
-      }
-
-      const modelBuffer = new Uint8Array(await modelRes.arrayBuffer());
-      const configBuffer = new Uint8Array(await configRes.arrayBuffer());
-      const tokenizerBuffer = new Uint8Array(await tokenizerRes.arrayBuffer());
-
-      engine.load_model(modelBuffer, configBuffer);
-      engine.load_tokenizer(tokenizerBuffer);
-      console.log("[WingMemoryEngine] Model and Tokenizer loaded successfully.");
+      newEngine.load(persistedData);
+      console.log(`[WingMemoryEngine] Loaded persisted index for ${docId}.`);
     } catch (e) {
-      console.error("[WingMemoryEngine] Failed to load assets. Embeddings will be mock zeros.", e);
+      console.error("[WingMemoryEngine] Failed to deserialize index:", e);
     }
-
-    return engine;
-  } catch (error) {
-    console.error("[WingMemoryEngine] Failed to initialize:", error);
-    throw error;
   }
+
+  console.log("[WingMemoryEngine] Loading model and tokenizer...");
+  const [modelBuffer, configBuffer, tokenizerBuffer] = await Promise.all([
+    loadAssetCached(MODEL_URL, `${MODEL_ASSET_VERSION}:model`),
+    loadAssetCached(CONFIG_URL, `${MODEL_ASSET_VERSION}:config`),
+    loadAssetCached(TOKENIZER_URL, `${MODEL_ASSET_VERSION}:tokenizer`),
+  ]);
+
+  // Any failure above throws, and we deliberately do not fall back to a
+  // "working" engine with no model loaded: without real embeddings,
+  // query() would silently return meaningless zero-vector results instead
+  // of a visible error.
+  newEngine.load_model(modelBuffer, configBuffer);
+  newEngine.load_tokenizer(tokenizerBuffer);
+  console.log("[WingMemoryEngine] Model and tokenizer loaded successfully.");
+
+  engine = newEngine;
+  return engine;
 };
 
 export const getEngine = () => {
@@ -80,20 +78,6 @@ export const saveEngine = async (docId: string) => {
   const eng = getEngine();
   try {
     const serialized = eng.serialize();
-    // serialized is a JsValue (likely Object or Map), we need to ensure it's Uint8Array or compatible for storage.
-    // Actually, serde_wasm_bindgen::to_value returns a JS object representation.
-    // Wait, IndexedDB can store objects directly! But our RFC said Uint8Array.
-    // If `serialize` returns a JS object, we can store it directly in IndexedDB.
-    // However, for efficiency and strict typing, we might want to ensure it's binary.
-    // But `serde_wasm_bindgen` converts to JS values.
-    // Let's assume for now we store whatever `serialize` returns.
-    // BUT `persistenceService` expects `Uint8Array`.
-    // We should probably update `serialize` in Rust to return `Vec<u8>` (bytes) using `bincode` or similar if we want binary.
-    // OR we update `persistenceService` to accept `any`.
-    // Given Phase 1.4 implementation: `serde_wasm_bindgen::to_value` returns a JS value (Map/Object).
-    // Let's update `persistenceService` to accept `any` for now to be flexible, or use JSON.stringify if needed.
-    // Actually, IndexedDB handles structured cloning, so Objects/Maps are fine.
-    // I will update `persistenceService` signature to `any`.
     await persistenceService.saveIndex(docId, serialized);
   } catch (e) {
     console.error("[WingMemoryEngine] Failed to save:", e);

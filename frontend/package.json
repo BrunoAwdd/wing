@@ -12,9 +12,13 @@
     "dev_server_port": 3002
   },
   "scripts": {
+    "prebuild": "npm run fetch:model",
     "build": "webpack --mode production",
     "build:wasm": "RUSTFLAGS='--cfg=getrandom_backend=\"wasm_js\"' wasm-pack build ../wing-memory-engine --target web --out-dir ../frontend/src/pkg",
+    "fetch:model": "node scripts/fetch-model.js",
+    "prebuild:dev": "npm run fetch:model",
     "build:dev": "webpack --mode development",
+    "predev-server": "npm run fetch:model",
     "dev-server": "webpack serve --mode development",
     "lint": "office-addin-lint check",
     "lint:fix": "office-addin-lint fix",

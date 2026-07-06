@@ -43,12 +43,16 @@ export const orchestrator = {
     // 1. Sync memory to ensure we have latest context
     await documentObserver.syncDocument();
 
-    // 2. Get some initial context for planning (optional, but good for Maestro)
-    // For V1, we might just send the instruction.
-    // Let's query the memory for context relevant to the instruction.
-    // Note: queryText returns JsValue (array of objects).
-    const contextResults: any[] = queryText(instruction, 5) as any[];
-    const contextStrings = contextResults.map((c) => c.text);
+    // 2. Query the memory engine for context relevant to the instruction.
+    // If the engine failed to initialize (e.g. model assets unavailable),
+    // proceed without semantic context rather than failing plan generation.
+    let contextStrings: string[] = [];
+    try {
+      const contextResults: any[] = queryText(instruction, 5) as any[];
+      contextStrings = contextResults.map((c) => c.text);
+    } catch (e) {
+      console.warn("[Orchestrator] Semantic context unavailable, proceeding without it:", e);
+    }
 
     return await maestroClient.requestPlan(instruction, contextStrings, options);
   },
@@ -135,8 +139,12 @@ export const orchestrator = {
         } else {
           // Complex Strategy: Use WASM Engine
           onLog(`[Strategy] Complex Agent detected. Using WASM Engine.`, "info");
-          const contextResults: any[] = queryText(step.description, 5) as any[];
-          contextStrings = contextResults.map((c) => c.text);
+          try {
+            const contextResults: any[] = queryText(step.description, 5) as any[];
+            contextStrings = contextResults.map((c) => c.text);
+          } catch (e) {
+            console.warn("[Orchestrator] Semantic context unavailable, proceeding without it:", e);
+          }
         }
 
         // 2. Call Agent

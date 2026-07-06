@@ -163,13 +163,15 @@ impl WingMemoryEngine {
         self.index.entries.clear();
         self.index.next_id = 0;
     }
-    pub fn serialize(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.index).unwrap()
+    /// Serializes the index to a binary blob (bincode) suitable for
+    /// storage as-is (e.g. in IndexedDB) and round-tripping through `load`.
+    pub fn serialize(&self) -> Result<Vec<u8>, JsValue> {
+        bincode::serialize(&self.index).map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
-    pub fn load(&mut self, serialized: JsValue) -> Result<(), JsValue> {
-        let index: MemoryIndex = serde_wasm_bindgen::from_value(serialized).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        
+    pub fn load(&mut self, serialized: Vec<u8>) -> Result<(), JsValue> {
+        let index: MemoryIndex = bincode::deserialize(&serialized).map_err(|e| JsValue::from_str(&e.to_string()))?;
+
         if index.version != 1 {
              return Err(JsValue::from_str(&format!("Unsupported index version: {}", index.version)));
         }
