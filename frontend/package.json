@@ -9,7 +9,7 @@
   "config": {
     "app_to_debug": "word",
     "app_type_to_debug": "desktop",
-    "dev_server_port": 3002
+    "dev_server_port": 5173
   },
   "scripts": {
     "prebuild": "npm run fetch:model",
