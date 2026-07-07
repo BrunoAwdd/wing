@@ -46,35 +46,4 @@ export const persistenceService = {
       console.error("[Persistence] Failed to clear index:", error);
     }
   },
-
-  /**
-   * Saves the list of agents to IndexedDB.
-   * @param agents The list of agents to cache.
-   */
-  saveAgents: async (agents: any[]): Promise<void> => {
-    try {
-      await set("wing_agents_cache", agents);
-      console.log(`[Persistence] Agents cached: ${agents.length}`);
-    } catch (error) {
-      console.error("[Persistence] Failed to save agents:", error);
-    }
-  },
-
-  /**
-   * Loads the list of agents from IndexedDB.
-   * @returns The list of agents or null if not found.
-   */
-  loadAgents: async (): Promise<any[] | null> => {
-    try {
-      const data = await get<any[]>("wing_agents_cache");
-      if (data) {
-        console.log(`[Persistence] Agents loaded from cache: ${data.length}`);
-        return data;
-      }
-      return null;
-    } catch (error) {
-      console.error("[Persistence] Failed to load agents:", error);
-      return null;
-    }
-  },
 };

@@ -38,8 +38,6 @@ interface CommandConsoleProps {
   onShowHistory: () => void;
   onShowLastUpdates: () => void;
   onSyncMemory: () => void;
-  onShowCopilot: () => void;
-  onShowCreateAgent: () => void;
 }
 
 const CommandConsole: React.FC<CommandConsoleProps> = ({
@@ -52,8 +50,6 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
   onShowHistory,
   onShowLastUpdates,
   onSyncMemory,
-  onShowCopilot,
-  onShowCreateAgent,
 }) => {
   const styles = useStyles();
 
@@ -77,16 +73,6 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
         </Button>
         <Button appearance="subtle" icon={<ArrowSyncCheckmark24Regular />} onClick={onSyncMemory}>
           Sincronizar Memória
-        </Button>
-        <Button
-          appearance="primary"
-          onClick={onShowCopilot}
-          style={{ backgroundColor: "#0078d4", color: "white" }}
-        >
-          Wing Copilot
-        </Button>
-        <Button appearance="outline" onClick={onShowCreateAgent}>
-          + Agente
         </Button>
       </div>
       <div className={styles.commandConsole}>
