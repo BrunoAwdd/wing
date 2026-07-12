@@ -25,7 +25,13 @@ import LastUpdatesPage from "./LastUpdatesPage";
 import { useAIApi } from "../hooks/useAIApi";
 import { documentObserver } from "../../services/documentObserver";
 
-/* global console, document, setInterval, clearInterval */
+/* global console, document, setInterval, clearInterval, process */
+
+// RFC 013: Visual Law e análise jurídica estruturada ficam incubadas —
+// desligadas por padrão (defaults "false"). Reativação exige configuração
+// explícita nos dois lados (frontend .env + backend .env) e novo deploy.
+const LEGAL_ANALYSIS_ENABLED = process.env.WING_FEATURE_LEGAL_ANALYSIS === "true";
+const DOCUMENT_DESIGN_ENABLED = process.env.WING_FEATURE_DOCUMENT_DESIGN === "true";
 
 const useStyles = makeStyles({
   root: {
@@ -246,7 +252,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     );
   }
 
-  if (view === "legalAnalysis") {
+  if (view === "legalAnalysis" && LEGAL_ANALYSIS_ENABLED) {
     return (
       <LegalAnalysisPage
         onBack={() => setView("main")}
@@ -260,7 +266,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     );
   }
 
-  if (view === "documentDesign") {
+  if (view === "documentDesign" && DOCUMENT_DESIGN_ENABLED) {
     return (
       <DocumentDesignPage
         onBack={() => setView("main")}
@@ -313,8 +319,8 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onStartAnalysis={() => setView("documentAnalysis")}
           onShowHistory={() => setView("history")}
           onShowLastUpdates={() => setView("lastUpdates")}
-          onShowLegalAnalysis={() => setView("legalAnalysis")}
-          onShowDocumentDesign={() => setView("documentDesign")}
+          onShowLegalAnalysis={LEGAL_ANALYSIS_ENABLED ? () => setView("legalAnalysis") : undefined}
+          onShowDocumentDesign={DOCUMENT_DESIGN_ENABLED ? () => setView("documentDesign") : undefined}
           onSyncMemory={async () => {
             addLog("Sincronizando memória...", "info");
             await documentObserver.syncDocument();

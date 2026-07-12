@@ -144,16 +144,23 @@ rootRouter.use(
   chatRouter.routes(),
   chatRouter.allowedMethods()
 );
-rootRouter.use(
-  "/api/v1/legal",
-  legalRouter.routes(),
-  legalRouter.allowedMethods()
-);
-rootRouter.use(
-  "/api/v1/design",
-  designRouter.routes(),
-  designRouter.allowedMethods()
-);
+// RFC 013: Visual Law e análise jurídica estruturada ficam incubadas —
+// desligadas por padrão. Rota só é registrada com a flag em "true", então
+// fica 404 real (não apenas escondida) enquanto a feature não é reativada.
+if (Deno.env.get("WING_FEATURE_LEGAL_ANALYSIS") === "true") {
+  rootRouter.use(
+    "/api/v1/legal",
+    legalRouter.routes(),
+    legalRouter.allowedMethods()
+  );
+}
+if (Deno.env.get("WING_FEATURE_DOCUMENT_DESIGN") === "true") {
+  rootRouter.use(
+    "/api/v1/design",
+    designRouter.routes(),
+    designRouter.allowedMethods()
+  );
+}
 rootRouter.use(authRouter.routes(), authRouter.allowedMethods()); // Rotas de auth na raiz
 
 // Initialize Extensions
