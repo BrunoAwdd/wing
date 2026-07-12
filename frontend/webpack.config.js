@@ -123,14 +123,16 @@ module.exports = async (env, options) => {
     ],
     devServer: {
       host: "0.0.0.0",
-      hot: true,
+      hot: false,
+      liveReload: false,
+      client: false,
       // Proxy only in development mode (options.mode === 'development')
       ...(options.mode === "development"
         ? {
             proxy: [
               {
                 context: "/api",
-                target: "http://localhost:3005", // backend dev (plain HTTP in dev)
+                target: process.env.DEV_API_TARGET || "http://localhost:3003", // backend dev (plain HTTP in dev)
                 secure: false, // aceita certificado auto‑assinado
                 changeOrigin: true,
               },

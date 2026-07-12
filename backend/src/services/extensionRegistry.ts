@@ -36,49 +36,6 @@ export class ExtensionRegistry {
     await this.loadExtensionsFromDatabase();
   }
 
-  // ... (keep private methods as is)
-
-  async createAgentExtension(manifest: WingExtensionManifest): Promise<void> {
-    try {
-      // 1. Save to Supabase (Primary Storage)
-      // Assuming 'supabase' is imported or available globally
-      const { data, error } = await supabase
-        .from("agents")
-        .upsert({
-          id: manifest.id,
-          name: manifest.config.visibleName,
-          category: manifest.config.category,
-          system_prompt:
-            (manifest.config as any).manifest.system_prompt ||
-            (manifest.config as any).manifest.system,
-          manifest: manifest,
-          updated_at: new Date().toISOString(),
-        })
-        .select();
-
-      if (error) {
-        console.error("[ExtensionRegistry] Failed to save agent to DB:", error);
-        throw error; // Now we throw because it's the only storage
-      } else {
-        console.log(
-          `[ExtensionRegistry] Saved agent to Supabase: ${manifest.id}`,
-          data
-        );
-      }
-
-      // Hot reload: Register immediately
-      if (manifest.type === "agent" && manifest.config.manifest) {
-        this.registerAgent(manifest.config.manifest);
-      }
-    } catch (error) {
-      console.error(
-        `[ExtensionRegistry] Failed to create agent extension:`,
-        error
-      );
-      throw error;
-    }
-  }
-
   private async loadExtensionsFromDatabase() {
     try {
       // Assuming 'supabase' is imported or available globally

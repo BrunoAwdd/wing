@@ -1,4 +1,4 @@
-import { Router, uuidv4 } from "../deps.ts";
+import { Router } from "../deps.ts";
 import { generateChatStream } from "../services/aiService.ts";
 
 const router = new Router();
@@ -35,7 +35,7 @@ router.post("/start", async (ctx) => {
     return;
   }
 
-  const sessionId = uuidv4.generate();
+  const sessionId = crypto.randomUUID();
   const history = [
     {
       role: "user",

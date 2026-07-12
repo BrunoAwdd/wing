@@ -144,6 +144,44 @@ export class OpenAIProvider implements AIProvider {
       }
     }
   }
+
+  async generateStructuredContent(
+    prompt: string,
+    schema: object,
+    options?: AIRequestOptions
+  ): Promise<string> {
+    const model = options?.model || "gpt-4o-mini";
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: "system",
+            content:
+              options?.systemInstruction ||
+              `Responda APENAS com um JSON válido que siga este schema: ${JSON.stringify(schema)}`,
+          },
+          { role: "user", content: prompt },
+        ],
+        temperature: options?.temperature ?? 0,
+        response_format: { type: "json_object" },
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`OpenAI API Error: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.message?.content ?? "";
+  }
 }
 
 export const openaiProvider = new OpenAIProvider();

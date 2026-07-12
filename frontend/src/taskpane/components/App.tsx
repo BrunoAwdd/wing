@@ -16,6 +16,8 @@ import Rating from "./Rating";
 import SettingsPage from "./SettingsPage";
 import DocumentAnalysisPage from "./DocumentAnalysisPage";
 import HistoryPage from "./HistoryPage";
+import LegalAnalysisPage from "./LegalAnalysisPage";
+import DocumentDesignPage from "./DocumentDesignPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
 import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
@@ -66,7 +68,13 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   // Estado de navegação
   const [view, setView] = useState<
-    "main" | "settings" | "documentAnalysis" | "history" | "lastUpdates"
+    | "main"
+    | "settings"
+    | "documentAnalysis"
+    | "history"
+    | "lastUpdates"
+    | "legalAnalysis"
+    | "documentDesign"
   >("main");
 
   // Estados gerenciados pelo App
@@ -98,6 +106,14 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     acceptMultipleSuggestions,
     insertAtCursor,
     insertHtmlAtCursor,
+    highlightClauses,
+    beautifyTables,
+    insertPictureAtCursor,
+    applySectionStyles,
+    applyDocumentTheme,
+    syncDocumentTheme,
+    insertTableFromCandidate,
+    insertChartAtAnchor,
     isUpdating,
   } = useWordInteraction({ addLog });
   const {
@@ -230,6 +246,36 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     );
   }
 
+  if (view === "legalAnalysis") {
+    return (
+      <LegalAnalysisPage
+        onBack={() => setView("main")}
+        insertHtmlAtCursor={insertHtmlAtCursor}
+        isOnline={isOnline}
+        licenseToken={licenseToken}
+        highlightClauses={highlightClauses}
+        beautifyTables={beautifyTables}
+        insertPictureAtCursor={insertPictureAtCursor}
+      />
+    );
+  }
+
+  if (view === "documentDesign") {
+    return (
+      <DocumentDesignPage
+        onBack={() => setView("main")}
+        isOnline={isOnline}
+        licenseToken={licenseToken}
+        applySectionStyles={applySectionStyles}
+        applyDocumentTheme={applyDocumentTheme}
+        syncDocumentTheme={syncDocumentTheme}
+        insertTableFromCandidate={insertTableFromCandidate}
+        insertChartAtAnchor={insertChartAtAnchor}
+        insertHtmlAtCursor={insertHtmlAtCursor}
+      />
+    );
+  }
+
   return (
     <div className={styles.root}>
       <StatusBar logs={logs} />
@@ -267,6 +313,8 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onStartAnalysis={() => setView("documentAnalysis")}
           onShowHistory={() => setView("history")}
           onShowLastUpdates={() => setView("lastUpdates")}
+          onShowLegalAnalysis={() => setView("legalAnalysis")}
+          onShowDocumentDesign={() => setView("documentDesign")}
           onSyncMemory={async () => {
             addLog("Sincronizando memória...", "info");
             await documentObserver.syncDocument();

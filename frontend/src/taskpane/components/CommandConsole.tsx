@@ -38,6 +38,8 @@ interface CommandConsoleProps {
   onShowHistory: () => void;
   onShowLastUpdates: () => void;
   onSyncMemory: () => void;
+  onShowLegalAnalysis: () => void;
+  onShowDocumentDesign: () => void;
 }
 
 const CommandConsole: React.FC<CommandConsoleProps> = ({
@@ -50,6 +52,8 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
   onShowHistory,
   onShowLastUpdates,
   onSyncMemory,
+  onShowLegalAnalysis,
+  onShowDocumentDesign,
 }) => {
   const styles = useStyles();
 
@@ -70,6 +74,12 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
         </Button>
         <Button appearance="primary" onClick={onStartAnalysis}>
           Analisar Documento
+        </Button>
+        <Button appearance="primary" onClick={onShowLegalAnalysis}>
+          Análise Jurídica
+        </Button>
+        <Button appearance="primary" onClick={onShowDocumentDesign}>
+          Formatar Documento
         </Button>
         <Button appearance="subtle" icon={<ArrowSyncCheckmark24Regular />} onClick={onSyncMemory}>
           Sincronizar Memória

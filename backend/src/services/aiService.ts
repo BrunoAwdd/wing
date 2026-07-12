@@ -44,3 +44,12 @@ export const generateChatStream = (
   const provider = getProviderForModel(options?.model);
   return provider.generateChatStream(prompt, history, options);
 };
+
+export const generateStructuredJson = async (
+  prompt: string,
+  schema: object,
+  options?: AIRequestOptions
+): Promise<string> => {
+  const provider = getProviderForModel(options?.model);
+  return provider.generateStructuredContent(prompt, schema, options);
+};

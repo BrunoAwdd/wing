@@ -1,6 +1,8 @@
 import { Application, Router, oakCors, Context } from "./deps.ts";
 import logger from "./services/logger.ts";
 import chatRouter from "./routes/chat.routes.ts";
+import legalRouter from "./routes/legal.routes.ts";
+import designRouter from "./routes/design.routes.ts";
 import authRouter from "./routes/auth.routes.ts";
 import { agentsService } from "./services/agentsService.ts";
 import { extensionRegistry } from "./services/extensionRegistry.ts";
@@ -77,8 +79,10 @@ const promptBuilderMapping: { [key: string]: PromptBuilder } = {
 };
 
 Object.entries(promptBuilderMapping).forEach(([actionName, promptBuilder]) => {
-  rootRouter.post(`/api/v1/${actionName}`, (ctx: Context) =>
-    handleStreamRequest(ctx, promptBuilder, actionName)
+  rootRouter.post(
+    `/api/v1/${actionName}`,
+    apiLimiter,
+    (ctx: Context) => handleStreamRequest(ctx, promptBuilder, actionName)
   );
 });
 
@@ -139,6 +143,16 @@ rootRouter.use(
   "/api/v1/chat",
   chatRouter.routes(),
   chatRouter.allowedMethods()
+);
+rootRouter.use(
+  "/api/v1/legal",
+  legalRouter.routes(),
+  legalRouter.allowedMethods()
+);
+rootRouter.use(
+  "/api/v1/design",
+  designRouter.routes(),
+  designRouter.allowedMethods()
 );
 rootRouter.use(authRouter.routes(), authRouter.allowedMethods()); // Rotas de auth na raiz
 
@@ -242,7 +256,7 @@ adminRouter.post("/api/admin/secrets", async (ctx: Context) => {
   }
 });
 
-adminRouter.get("/api/admin/secrets/:key", async (ctx: Context) => {
+adminRouter.get("/api/admin/secrets/:key", async (ctx: any) => {
   const key = ctx.params.key;
   const value = await wingLocalService.retrieveSecurely(key);
   if (value) {
@@ -282,7 +296,7 @@ if (isDev) {
   // Production / secure mode: use HTTPS with self‑signed certs
   const sslOptions = {
     port,
-    secure: true,
+    secure: true as const,
     cert: Deno.readTextFileSync("./cert.pem"),
     key: Deno.readTextFileSync("./key.pem"),
   };

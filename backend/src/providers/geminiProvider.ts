@@ -78,6 +78,31 @@ class GeminiProvider implements AIProvider {
       yield chunk.text();
     }
   }
+
+  async generateStructuredContent(
+    prompt: string,
+    schema: object,
+    options?: {
+      model?: string;
+      temperature?: number;
+      entitlement?: string;
+      systemInstruction?: string;
+    }
+  ): Promise<string> {
+    const modelName = options?.model || this.model;
+    const model = this.genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        temperature: options?.temperature ?? 0,
+        responseMimeType: "application/json",
+        responseSchema: schema as any,
+      },
+      systemInstruction: options?.systemInstruction,
+    });
+
+    const result = await model.generateContent(prompt);
+    return result.response.text();
+  }
 }
 
 export const geminiProvider = new GeminiProvider();

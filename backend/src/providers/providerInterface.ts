@@ -15,4 +15,9 @@ export interface AIProvider {
     history: any[],
     options?: AIRequestOptions
   ): AsyncGenerator<string, void, unknown>;
+  generateStructuredContent(
+    prompt: string,
+    schema: object,
+    options?: AIRequestOptions
+  ): Promise<string>;
 }

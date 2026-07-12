@@ -1,6 +1,36 @@
 import { get, set, del } from "idb-keyval";
+import { DocumentTheme } from "../utils/themes";
+
+const THEME_KEY = "wing_theme";
 
 export const persistenceService = {
+  /**
+   * Saves the user's chosen document design theme.
+   * @param theme The theme (preset + overrides) to persist.
+   */
+  saveTheme: async (theme: DocumentTheme): Promise<void> => {
+    try {
+      await set(THEME_KEY, theme);
+      console.log("[Persistence] Theme saved.");
+    } catch (error) {
+      console.error("[Persistence] Failed to save theme:", error);
+    }
+  },
+
+  /**
+   * Loads the persisted document design theme, if any.
+   * @returns The saved theme or null if not found.
+   */
+  loadTheme: async (): Promise<DocumentTheme | null> => {
+    try {
+      const theme = await get<DocumentTheme>(THEME_KEY);
+      return theme || null;
+    } catch (error) {
+      console.error("[Persistence] Failed to load theme:", error);
+      return null;
+    }
+  },
+
   /**
    * Saves the serialized index (bincode-encoded bytes) to IndexedDB.
    * @param docId The unique identifier for the document (e.g., URL).

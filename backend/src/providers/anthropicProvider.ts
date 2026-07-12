@@ -139,6 +139,40 @@ export class AnthropicProvider implements AIProvider {
       }
     }
   }
+
+  async generateStructuredContent(
+    prompt: string,
+    schema: object,
+    options?: AIRequestOptions
+  ): Promise<string> {
+    const model = options?.model || "claude-3-5-sonnet-20240620";
+
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY!,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: model,
+        max_tokens: 4096,
+        system:
+          options?.systemInstruction ||
+          `Responda APENAS com um JSON válido, sem texto ao redor, seguindo este schema: ${JSON.stringify(schema)}`,
+        messages: [{ role: "user", content: prompt }],
+        temperature: options?.temperature ?? 0,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Anthropic API Error: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json();
+    return data.content?.[0]?.text ?? "";
+  }
 }
 
 export const anthropicProvider = new AnthropicProvider();

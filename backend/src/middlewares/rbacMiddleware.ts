@@ -1,7 +1,7 @@
-import { Context, Next } from "../deps.ts";
+import { Context } from "../deps.ts";
 
 export const rbacMiddleware = (requiredRole: "Admin" | "User" | "Auditor") => {
-  return async (ctx: Context, next: Next) => {
+  return async (ctx: Context, next: () => Promise<unknown>) => {
     const userRole = ctx.request.headers.get("X-Wing-Role");
 
     if (!userRole) {
