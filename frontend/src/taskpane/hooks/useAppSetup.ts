@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { getLicenseToken } from "../services/licensingService";
+import { initEngine } from "../../services/wingMemoryEngine";
 import { track } from "../services/telemetry";
 import { LogEntry } from "../components/StatusBar";
 
@@ -13,7 +14,8 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
   const [licenseToken, setLicenseToken] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchLicenseToken = async () => {
+    const setupApp = async () => {
+      // 1. License
       addLog("Obtendo token de licença...", "info");
       const token = await getLicenseToken();
       console.log("Token de Licença Obtido:", token);
@@ -26,11 +28,46 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
         addLog("Token de licença obtido com sucesso.", "success");
         showFluentToast("Pronto para uso.", "success");
       }
+
+      // 2. Persistence (RFC 005)
+      try {
+        const settings = Office.context.document.settings;
+        let docId = settings.get("wing_doc_id") as string;
+
+        if (!docId) {
+          docId = crypto.randomUUID();
+          settings.set("wing_doc_id", docId);
+          await new Promise<void>((resolve, reject) => {
+            settings.saveAsync((result) => {
+              if (result.status === Office.AsyncResultStatus.Failed) {
+                console.error("[Persistence] Failed to save docId:", result.error);
+                reject(result.error);
+              } else {
+                console.log(`[Persistence] Generated new docId: ${docId}`);
+                resolve();
+              }
+            });
+          });
+        } else {
+          console.log(`[Persistence] Loaded existing docId: ${docId}`);
+        }
+
+        try {
+          await initEngine(docId);
+        } catch (e) {
+          console.error("[WingMemoryEngine] Failed to initialize:", e);
+          addLog("Busca semântica no documento indisponível nesta sessão.", "info");
+          showFluentToast("Contexto semântico indisponível. O restante do Wing funciona normalmente.", "info");
+        }
+
+        track("panel_opened");
+        addLog("Bem-vindo ao Wing!", "info");
+      } catch (e) {
+        console.error("Failed to setup persistence:", e);
+      }
     };
 
-    fetchLicenseToken();
-    track("panel_opened");
-    addLog("Bem-vindo ao Wing!", "info");
+    setupApp();
 
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);

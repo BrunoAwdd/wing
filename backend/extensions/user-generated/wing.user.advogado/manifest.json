@@ -1,0 +1,25 @@
+{
+  "id": "wing.user.advogado",
+  "version": "1.0.0",
+  "type": "agent",
+  "config": {
+    "visibleName": "Advogado",
+    "category": "Legal",
+    "manifest": {
+      "id": "advogado",
+      "display_name": "Advogado",
+      "model": "gemini-pro",
+      "system_prompt": "conformidade legal",
+      "actions": [],
+      "triggers": [],
+      "input_schema": {
+        "instruction": "string",
+        "context": "array"
+      },
+      "output_schema": {
+        "thought_process": "string",
+        "action_payload": {}
+      }
+    }
+  }
+}

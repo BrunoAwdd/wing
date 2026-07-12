@@ -12,11 +12,11 @@
  * @returns {Promise<string>} O token da licença.
  */
 export const getLicenseToken = async (): Promise<string> => {
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== "production") {
     console.log("[LICENSE-SIM] Retornando um TOKEN de licença 'Free' simulado.");
     // Em um cenário real, este seria um JWT longo. Para a simulação, uma string simples é suficiente.
     // O importante é que o backend saiba como interpretar este token de teste.
-    return "FAKE_FREE_LICENSE_TOKEN";
+    return "wing_test_dummy_token";
   }
 
   try {

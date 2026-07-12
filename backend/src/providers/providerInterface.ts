@@ -1,4 +1,23 @@
+export interface AIRequestOptions {
+  model?: string;
+  temperature?: number;
+  entitlement?: string;
+  systemInstruction?: string;
+}
+
 export interface AIProvider {
-  generateContentStream(prompt: string, entitlement: string): AsyncGenerator<string, void, unknown>;
-  generateChatStream(prompt: string, history: any[]): AsyncGenerator<string, void, unknown>;
+  generateContentStream(
+    prompt: string,
+    options?: AIRequestOptions
+  ): AsyncGenerator<string, void, unknown>;
+  generateChatStream(
+    prompt: string,
+    history: any[],
+    options?: AIRequestOptions
+  ): AsyncGenerator<string, void, unknown>;
+  generateStructuredContent(
+    prompt: string,
+    schema: object,
+    options?: AIRequestOptions
+  ): Promise<string>;
 }

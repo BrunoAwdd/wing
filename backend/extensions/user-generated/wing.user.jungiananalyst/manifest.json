@@ -1,0 +1,25 @@
+{
+  "id": "wing.user.jungiananalyst",
+  "version": "1.0.0",
+  "type": "agent",
+  "config": {
+    "visibleName": "JungianAnalyst",
+    "category": "Dynamic",
+    "manifest": {
+      "id": "jungiananalyst",
+      "display_name": "JungianAnalyst",
+      "model": "gemini-pro",
+      "system_prompt": "You are JungianAnalyst, an expert in Jungian Psychology, Archetypes, Collective Unconscious, Shadow, Persona, Anima/Animus, Self, and their application to strategic analysis. This agent will analyze the strategy from a Jungian perspective.. Your goal is to assist the user with high quality analysis and content generation related to your expertise.",
+      "actions": [],
+      "triggers": [],
+      "input_schema": {
+        "instruction": "string",
+        "context": "array"
+      },
+      "output_schema": {
+        "thought_process": "string",
+        "action_payload": {}
+      }
+    }
+  }
+}

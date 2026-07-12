@@ -9,11 +9,16 @@
   "config": {
     "app_to_debug": "word",
     "app_type_to_debug": "desktop",
-    "dev_server_port": 3002
+    "dev_server_port": 5173
   },
   "scripts": {
+    "prebuild": "npm run fetch:model",
     "build": "webpack --mode production",
+    "build:wasm": "RUSTFLAGS='--cfg=getrandom_backend=\"wasm_js\"' wasm-pack build ../wing-memory-engine --target web --out-dir ../frontend/src/pkg",
+    "fetch:model": "node scripts/fetch-model.js",
+    "prebuild:dev": "npm run fetch:model",
     "build:dev": "webpack --mode development",
+    "predev-server": "npm run fetch:model",
     "dev-server": "webpack serve --mode development",
     "lint": "office-addin-lint check",
     "lint:fix": "office-addin-lint fix",
@@ -31,6 +36,7 @@
     "@fluentui/react-icons": "^2.0.310",
     "core-js": "^3.36.0",
     "es6-promise": "^4.2.8",
+    "idb-keyval": "^6.2.2",
     "react": "^18.2.0",
     "react-diff-viewer-continued": "^3.4.0",
     "react-dom": "^18.2.0",
@@ -68,9 +74,9 @@
     "source-map-loader": "^5.0.0",
     "ts-loader": "^9.5.1",
     "typescript": "^5.4.2",
-    "webpack": "^5.95.0",
+    "webpack": "^5.103.0",
     "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "5.1.0"
+    "webpack-dev-server": "^5.1.0"
   },
   "prettier": "office-addin-prettier-config",
   "browserslist": [

@@ -1,0 +1,25 @@
+{
+  "id": "wing.user.mago",
+  "version": "1.0.0",
+  "type": "agent",
+  "config": {
+    "visibleName": "mago",
+    "category": "Other",
+    "manifest": {
+      "id": "mago",
+      "display_name": "mago",
+      "model": "gemini-pro",
+      "system_prompt": "quem cria os conceitos",
+      "actions": [],
+      "triggers": [],
+      "input_schema": {
+        "instruction": "string",
+        "context": "array"
+      },
+      "output_schema": {
+        "thought_process": "string",
+        "action_payload": {}
+      }
+    }
+  }
+}

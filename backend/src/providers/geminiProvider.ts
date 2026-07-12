@@ -1,8 +1,8 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { AIProvider } from "./providerInterface";
+import { GoogleGenerativeAI } from "../deps.ts";
+import { AIProvider } from "./providerInterface.ts";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
 
 class GeminiProvider implements AIProvider {
   private readonly genAI: GoogleGenerativeAI;
@@ -18,21 +18,31 @@ class GeminiProvider implements AIProvider {
 
   async *generateContentStream(
     prompt: string,
-    entitlement: string
+    options?: {
+      model?: string;
+      temperature?: number;
+      entitlement?: string;
+      systemInstruction?: string;
+    }
   ): AsyncGenerator<string, void, unknown> {
-    // Seleciona o modelo com base no nível da licença
-    const modelName =
-      entitlement === "Paid"
-        ? "gemini-2.5-pro" // Modelo superior para usuários pagos
-        : this.model; // Modelo padrão (gemini-1.5-flash) para usuários gratuitos
+    // Seleciona o modelo com base no nível da licença ou opção explícita
+    let modelName = this.model;
+
+    if (options?.model) {
+      modelName = options.model;
+    } else if (options?.entitlement === "Paid") {
+      modelName = "gemini-2.5-flash";
+    }
 
     const model = this.genAI.getGenerativeModel({
       model: modelName,
-      generationConfig: { temperature: 0 },
+      generationConfig: { temperature: options?.temperature ?? 0 },
+      systemInstruction: options?.systemInstruction,
     });
 
     console.log(
-      `Usando modelo: ${modelName} para o nível de acesso: ${entitlement}`
+      `Usando modelo: ${modelName} para o nível de acesso: ${options?.entitlement ?? "Unknown"
+      }`
     ); // Log para depuração
 
     const result = await model.generateContentStream(prompt);
@@ -44,9 +54,20 @@ class GeminiProvider implements AIProvider {
 
   async *generateChatStream(
     prompt: string,
-    history: any[]
+    history: any[],
+    options?: {
+      model?: string;
+      temperature?: number;
+      entitlement?: string;
+      systemInstruction?: string;
+    }
   ): AsyncGenerator<string, void, unknown> {
-    const model = this.genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    const modelName = options?.model || GEMINI_MODEL;
+    const model = this.genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: { temperature: options?.temperature ?? 0 },
+      systemInstruction: options?.systemInstruction,
+    });
     const chat = model.startChat({
       history: history,
     });
@@ -56,6 +77,31 @@ class GeminiProvider implements AIProvider {
     for await (const chunk of result.stream) {
       yield chunk.text();
     }
+  }
+
+  async generateStructuredContent(
+    prompt: string,
+    schema: object,
+    options?: {
+      model?: string;
+      temperature?: number;
+      entitlement?: string;
+      systemInstruction?: string;
+    }
+  ): Promise<string> {
+    const modelName = options?.model || this.model;
+    const model = this.genAI.getGenerativeModel({
+      model: modelName,
+      generationConfig: {
+        temperature: options?.temperature ?? 0,
+        responseMimeType: "application/json",
+        responseSchema: schema as any,
+      },
+      systemInstruction: options?.systemInstruction,
+    });
+
+    const result = await model.generateContent(prompt);
+    return result.response.text();
   }
 }
 

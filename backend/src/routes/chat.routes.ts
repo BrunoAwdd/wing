@@ -1,14 +1,13 @@
-import { Router, Request, Response } from "express";
-import { geminiProvider } from "../providers/geminiProvider";
-import { v4 as uuidv4 } from 'uuid';
+import { Router } from "../deps.ts";
+import { generateChatStream } from "../services/aiService.ts";
 
-const router = Router();
+const router = new Router();
 
 // --- Cache em Memória para Sessões de Chat ---
 
 interface ChatSession {
-  history: any[];
-  timeoutId: NodeJS.Timeout;
+  history: any[]; // TODO: Definir um tipo mais forte para o histórico
+  timeoutId: number; // Deno usa number para o ID do timeout
 }
 
 const chatSessions = new Map<string, ChatSession>();
@@ -28,21 +27,19 @@ const resetSessionTimeout = (sessionId: string) => {
 // --- Endpoints de Chat ---
 
 // Inicia uma nova sessão de chat com o conteúdo do documento
-router.post("/start", (req: Request, res: Response) => {
-  const { documentText } = req.body;
+router.post("/start", async (ctx) => {
+  const { documentText } = await ctx.request.body.json();
   if (!documentText) {
-    return res.status(400).json({ error: "documentText é obrigatório." });
+    ctx.response.status = 400;
+    ctx.response.body = { error: "documentText é obrigatório." };
+    return;
   }
 
-  const sessionId = uuidv4();
+  const sessionId = crypto.randomUUID();
   const history = [
     {
       role: "user",
-      parts: [{ text: `Você é um assistente especialista neste documento. Analise o conteúdo a seguir e prepare-se para responder perguntas sobre ele. O documento é:
-
----
-${documentText}
----` }],
+      parts: [{ text: `Você é um assistente especialista neste documento. Analise o conteúdo a seguir e prepare-se para responder perguntas sobre ele. O documento é:\n\n---\n${documentText}\n---` }],
     },
     {
       role: "model",
@@ -58,44 +55,42 @@ ${documentText}
   chatSessions.set(sessionId, { history, timeoutId });
 
   console.log(`Nova sessão de chat iniciada: ${sessionId}`);
-  res.status(201).json({ sessionId });
+  ctx.response.status = 201;
+  ctx.response.body = { sessionId };
 });
 
 // Envia uma mensagem para uma sessão de chat existente
-router.post("/message", async (req: Request, res: Response) => {
-  const { sessionId, message } = req.body;
+router.post("/message", async (ctx) => {
+  const { sessionId, message } = await ctx.request.body.json();
   if (!sessionId || !message) {
-    return res.status(400).json({ error: "sessionId e message são obrigatórios." });
+    ctx.response.status = 400;
+    ctx.response.body = { error: "sessionId e message são obrigatórios." };
+    return;
   }
 
   if (!chatSessions.has(sessionId)) {
-    return res.status(404).json({ error: "Sessão de chat não encontrada ou expirada." });
+    ctx.response.status = 404;
+    ctx.response.body = { error: "Sessão de chat não encontrada ou expirada." };
+    return;
   }
 
   resetSessionTimeout(sessionId);
   const session = chatSessions.get(sessionId)!;
 
   try {
-    res.setHeader("Content-Type", "text/plain");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-
-    const stream = geminiProvider.generateChatStream(message, session.history);
-
-    for await (const chunk of stream) {
-      res.write(chunk);
-    }
+    const stream = generateChatStream(message, session.history);
+    ctx.response.body = stream;
+    ctx.response.status = 200;
     
     // Atualiza o histórico da sessão após a resposta
-    // (Esta é uma simplificação. O ideal seria agregar a resposta completa)
     session.history.push({ role: "user", parts: [{ text: message }] });
-    // session.history.push({ role: "model", parts: [{ text: fullResponse }] });
+    // TODO: O ideal seria agregar a resposta completa do stream e adicioná-la ao histórico.
 
-    res.end();
   } catch (error) {
     console.error(`Erro ao enviar mensagem para a sessão ${sessionId}:`, error);
-    if (!res.writableEnded) {
-      res.status(500).json({ error: "Erro ao processar a mensagem." });
+    if (ctx.response.writable) {
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Erro ao processar a mensagem." };
     }
   }
 });

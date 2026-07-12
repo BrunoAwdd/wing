@@ -1,22 +1,49 @@
-import rateLimit from 'express-rate-limit';
-import logger from '../services/logger';
+import { Context } from "../deps.ts";
+import logger from "../services/logger.ts";
 
-export const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  message: {
-    error: 'Muitas requisições enviadas deste IP, por favor, tente novamente após 15 minutos.',
-  },
-  handler: (req, res, next, options) => {
+const WINDOW_MS = 15 * 60 * 1000;
+const MAX_REQUESTS = 100;
+
+type RateLimitBucket = {
+  count: number;
+  resetAt: number;
+};
+
+const buckets = new Map<string, RateLimitBucket>();
+
+const getClientKey = (ctx: Context): string => {
+  const forwardedFor = ctx.request.headers.get("x-forwarded-for");
+  if (forwardedFor) return forwardedFor.split(",")[0].trim();
+  return ctx.request.headers.get("x-real-ip") || "unknown";
+};
+
+export const apiLimiter = async (
+  ctx: Context,
+  next: () => Promise<unknown>
+) => {
+  const now = Date.now();
+  const key = getClientKey(ctx);
+  const current = buckets.get(key);
+  const bucket =
+    current && current.resetAt > now
+      ? current
+      : { count: 0, resetAt: now + WINDOW_MS };
+
+  bucket.count += 1;
+  buckets.set(key, bucket);
+
+  if (bucket.count > MAX_REQUESTS) {
     logger.warn(
-      {
-        ip: req.ip,
-        path: req.path,
-      },
-      `Rate limit excedido para o IP: ${req.ip}`
+      { ip: key, path: ctx.request.url.pathname },
+      `Rate limit excedido para o IP: ${key}`
     );
-    res.status(options.statusCode).send(options.message);
-  },
-});
+    ctx.response.status = 429;
+    ctx.response.body = {
+      error:
+        "Muitas requisições enviadas deste IP, por favor, tente novamente após 15 minutos.",
+    };
+    return;
+  }
+
+  await next();
+};

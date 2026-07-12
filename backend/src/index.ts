@@ -1,86 +1,304 @@
-import express, { Request, Response, NextFunction } from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import jwt from "jsonwebtoken";
-import { track } from "./services/telemetry";
-import logger from "./services/logger";
-import apiRouter from "./routes/api.routes";
-import chatRouter from "./routes/chat.routes";
+import { Application, Router, oakCors, Context } from "./deps.ts";
+import logger from "./services/logger.ts";
+import chatRouter from "./routes/chat.routes.ts";
+import legalRouter from "./routes/legal.routes.ts";
+import designRouter from "./routes/design.routes.ts";
+import authRouter from "./routes/auth.routes.ts";
+import { agentsService } from "./services/agentsService.ts";
+import { extensionRegistry } from "./services/extensionRegistry.ts";
+import { maestroService } from "./services/maestroService.ts";
 
-dotenv.config();
+// Dependências que estavam em api.routes.ts
+import { apiLimiter } from "./middlewares/rateLimiter.ts";
+import { handleStreamRequest } from "./services/requestHandler.ts";
+import {
+  PromptBuilder,
+  buildFixPrompt,
+  buildTranslatePrompt,
+  buildSummarizePrompt,
+  buildRewritePrompt,
+} from "./prompts.ts";
 
-const app = express();
-const port = process.env.PORT || 3003;
+// --- Configuração de Ambiente ---
+const port = parseInt(Deno.env.get("PORT") || "3003");
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET não está definido nas variáveis de ambiente.");
-}
+// --- Inicialização da Aplicação ---
+const app = new Application();
 
 // --- Middlewares ---
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
 
-// --- Tipos e Interfaces ---
-interface AuthenticatedRequest extends Request {
-  user?: string | jwt.JwtPayload;
-}
+// Middleware de log para depuração
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
+  console.log(`--> ${ctx.request.method} ${ctx.request.url.pathname}`);
+  await next();
+});
 
-// --- Middleware de Autenticação JWT (Exemplo, não usado pelas rotas de IA) ---
-const authenticateToken = (
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
+// CORS Rígido (RFC 012)
+app.use(
+  oakCors({
+    origin: [
+      "https://localhost:3000", // Frontend Dev
+      "https://localhost:3002", // Frontend Dev (Webpack default)
+      "https://wing.ai", // Prod
+      "null", // Office.js (Local)
+    ],
+    optionsSuccessStatus: 200,
+  })
+);
 
-  if (token == null) {
-    track("auth_error", { type: "token_missing" });
-    return res.status(401).json({ error: "Token de autenticação não fornecido." });
-  }
+// Logger middleware
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
+  await next();
+  const rt = ctx.response.headers.get("X-Response-Time");
+  logger.info(
+    `${ctx.request.method} ${ctx.request.url} - ${ctx.response.status} - ${rt}`
+  );
+});
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      track("auth_error", { type: "token_invalid", message: err.message });
-      return res.status(403).json({ error: "Token inválido ou expirado." });
-    }
-    req.user = user;
-    next();
-  });
+// Timing middleware
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
+  const start = Date.now();
+  await next();
+  const ms = Date.now() - start;
+  ctx.response.headers.set("X-Response-Time", `${ms}ms`);
+});
+
+// --- Roteamento Centralizado ---
+const rootRouter = new Router();
+
+rootRouter.get("/", (ctx: Context) => {
+  ctx.response.body = "Backend do Wing rodando com Deno e Oak!";
+});
+
+// Lógica de criação das rotas da API movida para cá
+const promptBuilderMapping: { [key: string]: PromptBuilder } = {
+  fix: buildFixPrompt,
+  translate: buildTranslatePrompt,
+  summarize: buildSummarizePrompt,
+  rewrite: buildRewritePrompt,
 };
 
-// --- Rotas Públicas de Autenticação ---
-app.post("/auth/office", async (req, res) => {
-  const { msToken } = req.body;
-  if (!msToken) {
-    return res.status(400).json({ error: "msToken não fornecido." });
-  }
-  // Lógica de validação do msToken e geração do appJwt...
-  const userPayload = { sub: "user-id-from-ms-token", upn: "user@example.com" };
-  const appJwt = jwt.sign(userPayload, JWT_SECRET, { expiresIn: "15m" });
-  track("office_sso_success", { upn: userPayload.upn });
-  res.json({ appJwt });
+Object.entries(promptBuilderMapping).forEach(([actionName, promptBuilder]) => {
+  rootRouter.post(
+    `/api/v1/${actionName}`,
+    apiLimiter,
+    (ctx: Context) => handleStreamRequest(ctx, promptBuilder, actionName)
+  );
 });
 
-app.post("/login", (req, res) => {
-  const { username, password } = req.body;
-  if (username === "admin" && password === "password") {
-    const userPayload = { name: username, roles: ["admin"] };
-    const token = jwt.sign(userPayload, JWT_SECRET, { expiresIn: "1h" });
-    track("user_login_success", { username });
-    res.json({ token });
+// Maestro Route
+rootRouter.post("/api/maestro/plan", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { instruction, context, options } = body;
+
+    if (!instruction) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Instruction is required" };
+      return;
+    }
+
+    const plan = await maestroService.generatePlan(
+      instruction,
+      context || [],
+      options
+    );
+    ctx.response.body = plan;
+  } catch (error) {
+    console.error("Maestro Error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Failed to generate plan" };
+  }
+});
+
+// Agents Route
+rootRouter.post("/api/agent/execute", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { agentId, instruction, context } = body;
+
+    if (!agentId || !instruction) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "agentId and instruction are required" };
+      return;
+    }
+
+    const response = await agentsService.executeAgent(
+      agentId,
+      instruction,
+      context || []
+    );
+    ctx.response.body = response;
+  } catch (error) {
+    console.error("Agent Error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = {
+      error: error instanceof Error ? error.message : "Failed to execute agent",
+    };
+  }
+});
+
+// Monta os outros roteadores
+rootRouter.use(
+  "/api/v1/chat",
+  chatRouter.routes(),
+  chatRouter.allowedMethods()
+);
+rootRouter.use(
+  "/api/v1/legal",
+  legalRouter.routes(),
+  legalRouter.allowedMethods()
+);
+rootRouter.use(
+  "/api/v1/design",
+  designRouter.routes(),
+  designRouter.allowedMethods()
+);
+rootRouter.use(authRouter.routes(), authRouter.allowedMethods()); // Rotas de auth na raiz
+
+// Initialize Extensions
+await extensionRegistry.loadExtensions();
+
+// Extension Management Routes (Public for now, or use specific auth later)
+rootRouter.post("/api/extensions/agent", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { name, category, systemPrompt } = body;
+
+    if (!name || !systemPrompt) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Name and System Prompt are required" };
+      return;
+    }
+
+    const id = name.toLowerCase().replace(/\s+/g, "-");
+    const manifest = {
+      id: `wing.user.${id}`,
+      version: "1.0.0",
+      type: "agent",
+      config: {
+        visibleName: name,
+        category: category || "User",
+        manifest: {
+          id: id,
+          display_name: name,
+          model: "gemini-pro",
+          system_prompt: systemPrompt,
+          actions: [],
+          triggers: [],
+          input_schema: {
+            instruction: "string",
+            context: "array",
+          },
+          output_schema: {
+            thought_process: "string",
+            action_payload: {},
+          },
+        },
+      },
+    };
+
+    // @ts-ignore: manifest type mismatch workaround for now
+    await extensionRegistry.createAgentExtension(manifest);
+
+    ctx.response.body = { status: "created", agentId: id };
+  } catch (error) {
+    console.error("Create Agent Error:", error);
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Failed to create agent" };
+  }
+});
+
+rootRouter.get("/api/extensions/agent", (ctx: Context) => {
+  const agents = extensionRegistry.getAgents();
+  ctx.response.body = Object.values(agents);
+});
+
+// Microsoft Auth Route
+import { microsoftLicensingService } from "./services/microsoftLicensingService.ts";
+
+rootRouter.post("/api/auth/microsoft", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { token } = body;
+
+    if (!token) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Token is required" };
+      return;
+    }
+
+    const result = await microsoftLicensingService.syncLicense(token);
+    ctx.response.body = result;
+  } catch (error) {
+    console.error("Microsoft Auth Error:", error);
+    ctx.response.status = 401;
+    ctx.response.body = { error: "Failed to authenticate with Microsoft" };
+  }
+});
+
+// Enterprise / Admin Routes
+import { rbacMiddleware } from "./middlewares/rbacMiddleware.ts";
+import { wingLocalService } from "./services/wingLocalService.ts";
+
+const adminRouter = new Router();
+adminRouter.use(rbacMiddleware("Admin"));
+
+adminRouter.post("/api/admin/secrets", async (ctx: Context) => {
+  try {
+    const body = await ctx.request.body.json();
+    const { key, value } = body;
+    await wingLocalService.storeSecurely(key, value);
+    ctx.response.body = { status: "stored", key };
+  } catch (e) {
+    ctx.response.status = 500;
+    ctx.response.body = { error: "Failed to store secret" };
+  }
+});
+
+adminRouter.get("/api/admin/secrets/:key", async (ctx: any) => {
+  const key = ctx.params.key;
+  const value = await wingLocalService.retrieveSecurely(key);
+  if (value) {
+    ctx.response.body = { key, value };
   } else {
-    track("user_login_failed", { username });
-    res.status(401).json({ error: "Credenciais inválidas." });
+    ctx.response.status = 404;
+    ctx.response.body = { error: "Secret not found" };
   }
 });
 
-// --- Rotas Protegidas da API v1 ---
-app.use("/api/v1", apiRouter);
-app.use("/api/v1/chat", chatRouter);
+// MCP Routes (External Client)
+import mcpRouter from "./routes/mcpRoutes.ts";
+rootRouter.use("/api/mcp", mcpRouter.routes(), mcpRouter.allowedMethods());
+
+rootRouter.use(adminRouter.routes(), adminRouter.allowedMethods());
+
+// Aplica o roteador principal à aplicação
+app.use(rootRouter.routes());
+app.use(rootRouter.allowedMethods());
 
 // --- Inicialização do Servidor ---
-app.listen(port, () => {
-  logger.info(`Servidor backend rodando em http://localhost:${port}`);
+app.addEventListener("listen", ({ hostname, port, secure }) => {
+  logger.info(
+    `Servidor backend rodando em ${secure ? "https://" : "http://"}${hostname ?? "localhost"
+    }:${port}`
+  );
 });
+
+// Determine if we are in development (NODE_ENV=development)
+// Treat any environment that is NOT explicitly "production" as development
+const isDev = Deno.env.get("NODE_ENV") !== "production";
+
+if (isDev) {
+  // Development: use plain HTTP (no TLS) to avoid proxy EPROTO errors
+  await app.listen({ port, secure: false });
+} else {
+  // Production / secure mode: use HTTPS with self‑signed certs
+  const sslOptions = {
+    port,
+    secure: true as const,
+    cert: Deno.readTextFileSync("./cert.pem"),
+    key: Deno.readTextFileSync("./key.pem"),
+  };
+  await app.listen(sslOptions);
+}

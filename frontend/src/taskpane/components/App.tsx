@@ -16,13 +16,16 @@ import Rating from "./Rating";
 import SettingsPage from "./SettingsPage";
 import DocumentAnalysisPage from "./DocumentAnalysisPage";
 import HistoryPage from "./HistoryPage";
+import LegalAnalysisPage from "./LegalAnalysisPage";
+import DocumentDesignPage from "./DocumentDesignPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
 import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
 import LastUpdatesPage from "./LastUpdatesPage";
 import { useAIApi } from "../hooks/useAIApi";
+import { documentObserver } from "../../services/documentObserver";
 
-/* global process */
+/* global console, document, setInterval, clearInterval */
 
 const useStyles = makeStyles({
   root: {
@@ -64,7 +67,15 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const styles = useStyles();
 
   // Estado de navegação
-  const [view, setView] = useState<"main" | "settings" | "documentAnalysis" | "history" | "lastUpdates">("main");
+  const [view, setView] = useState<
+    | "main"
+    | "settings"
+    | "documentAnalysis"
+    | "history"
+    | "lastUpdates"
+    | "legalAnalysis"
+    | "documentDesign"
+  >("main");
 
   // Estados gerenciados pelo App
   const [command, setCommand] = useState("fix");
@@ -89,7 +100,22 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   // Hooks customizados
   const { licenseToken, isOnline } = useAppSetup({ addLog, showFluentToast });
-  const { originalText, acceptSingleSuggestion, acceptMultipleSuggestions, insertAtCursor, insertHtmlAtCursor, isUpdating } = useWordInteraction({ addLog });
+  const {
+    originalText,
+    acceptSingleSuggestion,
+    acceptMultipleSuggestions,
+    insertAtCursor,
+    insertHtmlAtCursor,
+    highlightClauses,
+    beautifyTables,
+    insertPictureAtCursor,
+    applySectionStyles,
+    applyDocumentTheme,
+    syncDocumentTheme,
+    insertTableFromCandidate,
+    insertChartAtAnchor,
+    isUpdating,
+  } = useWordInteraction({ addLog });
   const {
     suggestedText,
     setSuggestedText,
@@ -198,7 +224,12 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   }
 
   if (view === "documentAnalysis") {
-    return <DocumentAnalysisPage onBack={() => setView("main")} insertHtmlAtCursor={insertHtmlAtCursor} />;
+    return (
+      <DocumentAnalysisPage
+        onBack={() => setView("main")}
+        insertHtmlAtCursor={insertHtmlAtCursor}
+      />
+    );
   }
 
   if (view === "history") {
@@ -211,6 +242,36 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         onBack={() => setView("main")}
         acceptSingleSuggestion={acceptSingleSuggestion}
         originalText={originalText}
+      />
+    );
+  }
+
+  if (view === "legalAnalysis") {
+    return (
+      <LegalAnalysisPage
+        onBack={() => setView("main")}
+        insertHtmlAtCursor={insertHtmlAtCursor}
+        isOnline={isOnline}
+        licenseToken={licenseToken}
+        highlightClauses={highlightClauses}
+        beautifyTables={beautifyTables}
+        insertPictureAtCursor={insertPictureAtCursor}
+      />
+    );
+  }
+
+  if (view === "documentDesign") {
+    return (
+      <DocumentDesignPage
+        onBack={() => setView("main")}
+        isOnline={isOnline}
+        licenseToken={licenseToken}
+        applySectionStyles={applySectionStyles}
+        applyDocumentTheme={applyDocumentTheme}
+        syncDocumentTheme={syncDocumentTheme}
+        insertTableFromCandidate={insertTableFromCandidate}
+        insertChartAtAnchor={insertChartAtAnchor}
+        insertHtmlAtCursor={insertHtmlAtCursor}
       />
     );
   }
@@ -252,6 +313,13 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onStartAnalysis={() => setView("documentAnalysis")}
           onShowHistory={() => setView("history")}
           onShowLastUpdates={() => setView("lastUpdates")}
+          onShowLegalAnalysis={() => setView("legalAnalysis")}
+          onShowDocumentDesign={() => setView("documentDesign")}
+          onSyncMemory={async () => {
+            addLog("Sincronizando memória...", "info");
+            await documentObserver.syncDocument();
+            addLog("Memória sincronizada.", "success");
+          }}
         />
       </div>
     </div>

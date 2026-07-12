@@ -9,19 +9,23 @@ const useStyles = makeStyles({
     flexGrow: 1,
     overflowY: "auto",
   },
+  suggestionItem: {
+    ...shorthands.padding("0", "0", "16px", "0"),
+    ...shorthands.margin("0", "0", "16px", "0"),
+    ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke2),
+  },
   diffContainer: {
     ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
     ...shorthands.borderRadius(tokens.borderRadiusMedium),
     ...shorthands.padding("8px"),
     backgroundColor: tokens.colorNeutralBackground1,
     fontFamily: "monospace",
-    marginBottom: "16px",
   },
   buttons: {
     display: "flex",
     justifyContent: "flex-end",
     gap: "8px",
-    marginTop: "8px",
+    marginTop: "4px",
   },
 });
 
@@ -42,7 +46,7 @@ const DiffViewer: React.FC<DiffViewerProps> = ({ originalText, suggestedText, on
         if (!original) return null;
 
         return (
-          <div key={suggestion.id}>
+          <div key={suggestion.id} className={styles.suggestionItem}>
             <div className={styles.diffContainer}>
               <ReactDiffViewer
                 oldValue={original.text}

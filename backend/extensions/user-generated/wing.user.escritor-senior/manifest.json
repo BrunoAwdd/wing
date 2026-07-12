@@ -1,0 +1,25 @@
+{
+  "id": "wing.user.escritor-senior",
+  "version": "1.0.0",
+  "type": "agent",
+  "config": {
+    "visibleName": "Escritor Senior",
+    "category": "Productivity",
+    "manifest": {
+      "id": "escritor-senior",
+      "display_name": "Escritor Senior",
+      "model": "gemini-pro",
+      "system_prompt": "Vopce escreve receitas de forma profisisonal",
+      "actions": [],
+      "triggers": [],
+      "input_schema": {
+        "instruction": "string",
+        "context": "array"
+      },
+      "output_schema": {
+        "thought_process": "string",
+        "action_payload": {}
+      }
+    }
+  }
+}

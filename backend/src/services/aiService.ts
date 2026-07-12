@@ -1,20 +1,55 @@
-import { geminiProvider } from "../providers/geminiProvider";
-import { AIProvider } from "../providers/providerInterface";
-import { withRetry } from "../providers/withRetry";
+import { geminiProvider } from "../providers/geminiProvider.ts";
+import { openaiProvider } from "../providers/openaiProvider.ts";
+import { anthropicProvider } from "../providers/anthropicProvider.ts";
+import {
+  AIProvider,
+  AIRequestOptions,
+} from "../providers/providerInterface.ts";
+import { withRetry } from "../providers/withRetry.ts";
 
-// Wrap the chosen provider with the retry logic.
-const retryingProvider = withRetry(geminiProvider);
+// Wrap providers with retry logic
+const providers = {
+  gemini: withRetry(geminiProvider),
+  openai: withRetry(openaiProvider),
+  anthropic: withRetry(anthropicProvider),
+};
 
-// In the future, you can use an environment variable to decide which provider to use.
-// const activeProvider: AIProvider = process.env.AI_PROVIDER === 'azure' ? withRetry(azureProvider) : retryingProvider;
-const activeProvider: AIProvider = retryingProvider;
+const getProviderForModel = (model?: string): AIProvider => {
+  if (!model) return providers.gemini; // Default
+  if (model.startsWith("gpt")) return providers.openai;
+  if (model.startsWith("claude")) return providers.anthropic;
+  return providers.gemini;
+};
 
-/**
- * Gera conteúdo de texto em stream usando o provedor de IA ativo.
- * @param prompt O prompt a ser enviado para a IA.
- * @param entitlement O nível de licença do usuário (ex: 'Free', 'Paid').
- * @returns Um gerador assíncrono que produz os pedaços de texto.
- */
-export const generateTextStream = (prompt: string, entitlement: string): AsyncGenerator<string, void, unknown> => {
-  return activeProvider.generateContentStream(prompt, entitlement);
+export const generateTextStream = (
+  prompt: string,
+  optionsOrEntitlement: string | AIRequestOptions
+): AsyncGenerator<string, void, unknown> => {
+  let options: AIRequestOptions = {};
+  if (typeof optionsOrEntitlement === "string") {
+    options = { entitlement: optionsOrEntitlement };
+  } else {
+    options = optionsOrEntitlement;
+  }
+
+  const provider = getProviderForModel(options.model);
+  return provider.generateContentStream(prompt, options);
+};
+
+export const generateChatStream = (
+  prompt: string,
+  history: any[],
+  options?: AIRequestOptions
+): AsyncGenerator<string, void, unknown> => {
+  const provider = getProviderForModel(options?.model);
+  return provider.generateChatStream(prompt, history, options);
+};
+
+export const generateStructuredJson = async (
+  prompt: string,
+  schema: object,
+  options?: AIRequestOptions
+): Promise<string> => {
+  const provider = getProviderForModel(options?.model);
+  return provider.generateStructuredContent(prompt, schema, options);
 };
