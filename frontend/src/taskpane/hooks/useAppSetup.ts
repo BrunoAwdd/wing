@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { initEngine } from "../../services/wingMemoryEngine";
 import { track } from "../services/telemetry";
 import {
+  clearPersistedRefreshToken,
   closeWingSession,
   createWingSession,
+  loadPersistedRefreshToken,
+  persistRefreshToken,
+  refreshSession,
   requestMagicLinkCode,
   verifyMagicLinkCode,
   type WingSession,
@@ -63,6 +67,29 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
     [addLog, showFluentToast]
   );
 
+  // Troca o refresh token persistido por uma sessão Wing nova, sem pedir
+  // e-mail/código de novo — usado tanto ao abrir o painel (restaurar a
+  // sessão de uma vez anterior) quanto pouco antes da sessão curta expirar
+  // durante o uso (renovação silenciosa em segundo plano).
+  const refreshWithToken = useCallback(async (refreshToken: string): Promise<boolean> => {
+    const requestId = ++authRequestId.current;
+    try {
+      const nextSession = await refreshSession(refreshToken);
+      if (requestId !== authRequestId.current) return true;
+
+      setSession(nextSession);
+      persistRefreshToken(nextSession);
+      setAuthStatus("authenticated");
+      return true;
+    } catch {
+      if (requestId !== authRequestId.current) return true;
+
+      clearPersistedRefreshToken();
+      setSession(null);
+      return false;
+    }
+  }, []);
+
   const requestCode = useCallback(
     async (email: string) => {
       setAuthError(null);
@@ -91,6 +118,7 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
         if (requestId !== authRequestId.current) return;
 
         setSession(nextSession);
+        persistRefreshToken(nextSession);
         setAuthStatus("authenticated");
         addLog("Sessão Wing iniciada.", "success");
         showFluentToast("Sessão iniciada com segurança.", "success");
@@ -112,24 +140,36 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
   const signOut = useCallback(async () => {
     authRequestId.current += 1;
     const token = session?.token;
+    const refreshToken = session?.refreshToken;
     setSession(null);
     setAuthError(null);
     setAuthStatus("signed_out");
     panelTracked.current = false;
-    if (token) await closeWingSession(token);
+    clearPersistedRefreshToken();
+    if (token) await closeWingSession(token, refreshToken);
     addLog("Sessão Wing encerrada.", "info");
-  }, [addLog, session?.token]);
+  }, [addLog, session?.token, session?.refreshToken]);
 
   useEffect(() => {
     if (MICROSOFT_SSO_ENABLED) {
       void authenticate();
     } else {
-      setAuthStatus("needs_login");
+      // Persistência de login: se há um refresh token salvo de uma sessão
+      // anterior, tenta renovar silenciosamente antes de pedir e-mail/código
+      // — sem isso, todo fechar/reabrir do Word força login de novo.
+      const persistedRefreshToken = loadPersistedRefreshToken();
+      if (persistedRefreshToken) {
+        void refreshWithToken(persistedRefreshToken).then((restored) => {
+          if (!restored) setAuthStatus("needs_login");
+        });
+      } else {
+        setAuthStatus("needs_login");
+      }
     }
     return () => {
       authRequestId.current += 1;
     };
-  }, [authenticate]);
+  }, [authenticate, refreshWithToken]);
 
   useEffect(() => {
     if (!session) return undefined;
@@ -138,11 +178,22 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
     if (!Number.isFinite(refreshAt)) return undefined;
     const delay = Math.max(30_000, refreshAt - Date.now());
     const timer = window.setTimeout(() => {
-      void authenticate(true);
+      if (session.refreshToken) {
+        // Fluxo magic link: renova via refresh token, não via Office.auth
+        // (que só existe pro SSO Microsoft e falharia aqui).
+        void refreshWithToken(session.refreshToken).then((restored) => {
+          if (!restored) {
+            setAuthStatus("needs_login");
+            addLog("Sessão expirada. Faça login novamente.", "info");
+          }
+        });
+      } else {
+        void authenticate(true);
+      }
     }, delay);
 
     return () => window.clearTimeout(timer);
-  }, [authenticate, session]);
+  }, [authenticate, refreshWithToken, session, addLog]);
 
   useEffect(() => {
     if (!session || panelTracked.current) return;
