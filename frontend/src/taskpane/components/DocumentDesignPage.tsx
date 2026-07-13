@@ -158,7 +158,7 @@ const useStyles = makeStyles({
 interface DocumentDesignPageProps {
   onBack: () => void;
   isOnline: boolean;
-  licenseToken: string | null;
+  sessionToken: string | null;
   applySectionStyles: (
     sections: { level: 1 | 2 | 3; originalText: string; paragraphIndex?: number }[],
     headingColor: string
@@ -183,7 +183,7 @@ interface DocumentDesignPageProps {
 const DocumentDesignPage: React.FC<DocumentDesignPageProps> = ({
   onBack,
   isOnline,
-  licenseToken,
+  sessionToken,
   applySectionStyles,
   applyDocumentTheme,
   syncDocumentTheme,
@@ -192,7 +192,7 @@ const DocumentDesignPage: React.FC<DocumentDesignPageProps> = ({
   insertHtmlAtCursor,
 }) => {
   const styles = useStyles();
-  const { result, isLoading, error, analyze } = useDocumentDesign({ isOnline, licenseToken });
+  const { result, isLoading, error, analyze } = useDocumentDesign({ isOnline, sessionToken });
   const [theme, setTheme] = useState<DocumentTheme>(DEFAULT_THEME);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 

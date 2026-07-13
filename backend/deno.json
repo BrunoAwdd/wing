@@ -2,6 +2,7 @@
   "nodeModulesDir": "auto",
   "tasks": {
     "dev": "deno run --watch --allow-net --allow-env --allow-read --allow-write --env src/index.ts",
-    "start": "deno run --allow-net --allow-env --allow-read --allow-write --env src/index.ts"
+    "start": "deno run --allow-net --allow-env --allow-read --allow-write --env src/index.ts",
+    "test": "deno test --allow-net --allow-env --allow-read --allow-write --env src/"
   }
 }

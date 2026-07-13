@@ -88,12 +88,19 @@ const useStyles = makeStyles({
 interface DocumentAnalysisPageProps {
   onBack: () => void;
   insertHtmlAtCursor: (html: string) => Promise<void>;
+  isOnline: boolean;
+  sessionToken: string | null;
 }
 
-const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({ onBack, insertHtmlAtCursor }) => {
+const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
+  onBack,
+  insertHtmlAtCursor,
+  isOnline,
+  sessionToken,
+}) => {
   const styles = useStyles();
   const { messages, isLoading, error, startAnalysis, sendMessage, isSessionStarted } =
-    useDocumentChat();
+    useDocumentChat({ isOnline, sessionToken });
   const [currentMessage, setCurrentMessage] = useState("");
   const messageEndRef = useRef<null | HTMLDivElement>(null);
 

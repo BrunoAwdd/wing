@@ -1,5 +1,6 @@
 # RFC 001 — Wing 1.0 Architecture Specification
-**Status:** Draft 1.0  
+**Status:** Superseded by RFC 016
+
 **Author:** Bruno Oliveira  
 **Component:** Wing Memory Engine, Maestro, Agents Hub  
 **Date:** 2025-11-29  
@@ -306,4 +307,3 @@ Wing 1.0 define uma arquitetura inédita no ecossistema Office:
 **AI híbrida, com memória local, orquestração determinística, agentes especializados e auditabilidade completa.**
 
 Este RFC formaliza a base para expansão futura, permitindo que Wing evolua para o primeiro **Copilot Local Profissional** do mundo.
-

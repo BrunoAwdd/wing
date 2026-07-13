@@ -1,5 +1,9 @@
 # 🟦 WING — ROADMAP TÉCNICO DEFINITIVO (Versão Refinada)
 
+> **Histórico:** este roadmap foi substituído pelos RFCs 014 e 016. Agents Hub,
+> Maestro, Extensions de agents e MCP foram aposentados. O roadmap comercial
+> ativo está em `DOCS/COMMERCIAL_LAUNCH_ROADMAP.md`.
+
 ## Arquitetura Híbrida de Borda (Edge Hybrid)
 **Memória, Recuperação e Observação → Local (Rust + WASM)**  
 **Raciocínio, Orquestração e Geração → Nuvem (Node.js + Gemini)**  

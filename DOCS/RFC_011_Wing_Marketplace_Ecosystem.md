@@ -1,5 +1,6 @@
 # RFC 011 — Wing Marketplace & Ecosystem Architecture  
-**Status:** Draft 1.0  
+**Status:** Superseded by RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** Wing Core, Personas, Add-ins, Plugins, Extensões, Wing Hub  
 **Data:** 29/11/2025  

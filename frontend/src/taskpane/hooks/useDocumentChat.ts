@@ -9,6 +9,11 @@ export interface ChatMessage {
   content: string;
 }
 
+interface UseDocumentChatProps {
+  isOnline: boolean;
+  sessionToken: string | null;
+}
+
 // Função auxiliar para ler o documento inteiro como texto puro
 const getDocumentAsText = async (): Promise<string> => {
   return await Word.run(async (context) => {
@@ -19,13 +24,18 @@ const getDocumentAsText = async (): Promise<string> => {
   });
 };
 
-export const useDocumentChat = () => {
+export const useDocumentChat = ({ isOnline, sessionToken }: UseDocumentChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const startAnalysis = useCallback(async () => {
+    if (!isOnline || !sessionToken) {
+      setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     setMessages([]);
@@ -38,7 +48,10 @@ export const useDocumentChat = () => {
 
       const response = await fetch(`${BACKEND_URL}/api/v1/chat/start`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
         body: JSON.stringify({ documentText }),
       });
 
@@ -61,7 +74,7 @@ export const useDocumentChat = () => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isOnline, sessionToken]);
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -80,7 +93,10 @@ export const useDocumentChat = () => {
       try {
         const response = await fetch(`${BACKEND_URL}/api/v1/chat/message`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${sessionToken}`,
+          },
           body: JSON.stringify({ sessionId, message }),
         });
 
@@ -110,7 +126,7 @@ export const useDocumentChat = () => {
         setIsLoading(false);
       }
     },
-    [sessionId]
+    [sessionId, sessionToken]
   );
 
   return { messages, isLoading, error, startAnalysis, sendMessage, isSessionStarted: !!sessionId };

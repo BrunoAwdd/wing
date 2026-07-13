@@ -1,5 +1,6 @@
 # RFC 007 — Wing Client Engine: UI/UX Blueprint (Especificação Oficial)
-**Status:** Draft 1.0  
+**Status:** Partially superseded by RFC 014 and RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** Client Engine (Frontend), React, Office.js, Wing Memory Engine, Maestro  
 **Data:** 29/11/2025  

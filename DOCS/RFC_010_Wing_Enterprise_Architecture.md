@@ -1,5 +1,6 @@
 # RFC 010 — Wing Enterprise Edition Architecture  
-**Status:** Draft 1.0  
+**Status:** Partially superseded by RFC 014 and RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** Wing Memory Engine, Client Engine, Agents Hub, Maestro, Wing Local Service (Enterprise), Administração Central  
 **Data:** 29/11/2025  

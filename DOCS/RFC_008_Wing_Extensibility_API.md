@@ -1,5 +1,6 @@
 # RFC 008 — Wing Extensibility API (Arquitetura de Extensão do Wing)
-**Status:** Draft 1.0  
+**Status:** Superseded by RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** Client Engine, Agents Hub, (Futuro) Wing Local Service, Plugins  
 **Data:** 29/11/2025  

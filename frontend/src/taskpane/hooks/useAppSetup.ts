@@ -1,35 +1,157 @@
-import { useState, useEffect } from "react";
-import { getLicenseToken } from "../services/licensingService";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { initEngine } from "../../services/wingMemoryEngine";
 import { track } from "../services/telemetry";
+import {
+  closeWingSession,
+  createWingSession,
+  requestMagicLinkCode,
+  verifyMagicLinkCode,
+  type WingSession,
+} from "../services/sessionService";
 import { LogEntry } from "../components/StatusBar";
+
+/* global Office, crypto, navigator, window, process */
+
+// A Wing vende direto via Stripe (não pelo comércio da Microsoft Store), então
+// login por e-mail é o padrão. O SSO Microsoft continua no código (RFC 013),
+// só desligado por padrão — reativável via WING_FEATURE_MICROSOFT_SSO=true.
+const MICROSOFT_SSO_ENABLED = process.env.WING_FEATURE_MICROSOFT_SSO === "true";
 
 interface AppSetupProps {
   addLog: (message: string, type: LogEntry["type"]) => void;
   showFluentToast: (message: string, type: "info" | "success" | "error") => void;
 }
 
+export type AuthStatus = "loading" | "needs_login" | "authenticated" | "error" | "signed_out";
+
 export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [licenseToken, setLicenseToken] = useState<string | null>(null);
+  const [session, setSession] = useState<WingSession | null>(null);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>("loading");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const authRequestId = useRef(0);
+  const panelTracked = useRef(false);
+
+  const authenticate = useCallback(
+    async (silent = false) => {
+      const requestId = ++authRequestId.current;
+      if (!silent) setAuthStatus("loading");
+      setAuthError(null);
+
+      try {
+        const nextSession = await createWingSession();
+        if (requestId !== authRequestId.current) return;
+
+        setSession(nextSession);
+        setAuthStatus("authenticated");
+        if (!silent) {
+          addLog("Sessão Wing iniciada com sua conta Microsoft.", "success");
+          showFluentToast("Sessão iniciada com segurança.", "success");
+        }
+      } catch (error) {
+        if (requestId !== authRequestId.current) return;
+
+        const message =
+          error instanceof Error ? error.message : "Não foi possível iniciar a sessão Wing.";
+        setSession(null);
+        setAuthStatus("error");
+        setAuthError(message);
+        addLog(message, "error");
+        if (!silent) showFluentToast(message, "error");
+      }
+    },
+    [addLog, showFluentToast]
+  );
+
+  const requestCode = useCallback(
+    async (email: string) => {
+      setAuthError(null);
+      try {
+        await requestMagicLinkCode(email);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Não foi possível enviar o código.";
+        setAuthError(message);
+        addLog(message, "error");
+        showFluentToast(message, "error");
+        throw error;
+      }
+    },
+    [addLog, showFluentToast]
+  );
+
+  const verifyCode = useCallback(
+    async (email: string, code: string) => {
+      const requestId = ++authRequestId.current;
+      setAuthStatus("loading");
+      setAuthError(null);
+
+      try {
+        const nextSession = await verifyMagicLinkCode(email, code);
+        if (requestId !== authRequestId.current) return;
+
+        setSession(nextSession);
+        setAuthStatus("authenticated");
+        addLog("Sessão Wing iniciada.", "success");
+        showFluentToast("Sessão iniciada com segurança.", "success");
+      } catch (error) {
+        if (requestId !== authRequestId.current) return;
+
+        const message =
+          error instanceof Error ? error.message : "Não foi possível iniciar a sessão Wing.";
+        setSession(null);
+        setAuthStatus("needs_login");
+        setAuthError(message);
+        addLog(message, "error");
+        showFluentToast(message, "error");
+      }
+    },
+    [addLog, showFluentToast]
+  );
+
+  const signOut = useCallback(async () => {
+    authRequestId.current += 1;
+    const token = session?.token;
+    setSession(null);
+    setAuthError(null);
+    setAuthStatus("signed_out");
+    panelTracked.current = false;
+    if (token) await closeWingSession(token);
+    addLog("Sessão Wing encerrada.", "info");
+  }, [addLog, session?.token]);
 
   useEffect(() => {
-    const setupApp = async () => {
-      // 1. License
-      addLog("Obtendo token de licença...", "info");
-      const token = await getLicenseToken();
-      console.log("Token de Licença Obtido:", token);
-      setLicenseToken(token);
+    if (MICROSOFT_SSO_ENABLED) {
+      void authenticate();
+    } else {
+      setAuthStatus("needs_login");
+    }
+    return () => {
+      authRequestId.current += 1;
+    };
+  }, [authenticate]);
 
-      if (token === "ERROR_FETCHING_TOKEN") {
-        addLog("Não foi possível obter o token de licença.", "error");
-        showFluentToast("Atenção: Não foi possível verificar sua licença.", "error");
-      } else {
-        addLog("Token de licença obtido com sucesso.", "success");
-        showFluentToast("Pronto para uso.", "success");
-      }
+  useEffect(() => {
+    if (!session) return undefined;
 
-      // 2. Persistence (RFC 005)
+    const refreshAt = new Date(session.expiresAt).getTime() - 2 * 60 * 1000;
+    if (!Number.isFinite(refreshAt)) return undefined;
+    const delay = Math.max(30_000, refreshAt - Date.now());
+    const timer = window.setTimeout(() => {
+      void authenticate(true);
+    }, delay);
+
+    return () => window.clearTimeout(timer);
+  }, [authenticate, session]);
+
+  useEffect(() => {
+    if (!session || panelTracked.current) return;
+    panelTracked.current = true;
+    track("panel_opened", undefined, session.token);
+  }, [session]);
+
+  useEffect(() => {
+    const setupMemory = async () => {
       try {
         const settings = Office.context.document.settings;
         let docId = settings.get("wing_doc_id") as string;
@@ -40,38 +162,35 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
           await new Promise<void>((resolve, reject) => {
             settings.saveAsync((result) => {
               if (result.status === Office.AsyncResultStatus.Failed) {
-                console.error("[Persistence] Failed to save docId:", result.error);
                 reject(result.error);
               } else {
-                console.log(`[Persistence] Generated new docId: ${docId}`);
                 resolve();
               }
             });
           });
-        } else {
-          console.log(`[Persistence] Loaded existing docId: ${docId}`);
         }
 
         try {
           await initEngine(docId);
-        } catch (e) {
-          console.error("[WingMemoryEngine] Failed to initialize:", e);
+        } catch (error) {
+          console.error("[WingMemoryEngine] Failed to initialize:", error);
           addLog("Busca semântica no documento indisponível nesta sessão.", "info");
-          showFluentToast("Contexto semântico indisponível. O restante do Wing funciona normalmente.", "info");
+          showFluentToast(
+            "Contexto semântico indisponível. O restante do Wing funciona normalmente.",
+            "info"
+          );
         }
-
-        track("panel_opened");
-        addLog("Bem-vindo ao Wing!", "info");
-      } catch (e) {
-        console.error("Failed to setup persistence:", e);
+      } catch (error) {
+        console.error("Failed to setup persistence:", error);
       }
     };
 
-    setupApp();
+    void setupMemory();
+  }, [addLog, showFluentToast]);
 
+  useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
-
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
 
@@ -81,5 +200,15 @@ export const useAppSetup = ({ addLog, showFluentToast }: AppSetupProps) => {
     };
   }, []);
 
-  return { licenseToken, isOnline };
+  return {
+    sessionToken: session?.token || null,
+    sessionUser: session?.user || null,
+    authStatus,
+    authError,
+    retryAuth: authenticate,
+    requestCode,
+    verifyCode,
+    signOut,
+    isOnline,
+  };
 };

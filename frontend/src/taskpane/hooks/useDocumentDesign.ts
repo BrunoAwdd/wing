@@ -64,7 +64,7 @@ export interface DocumentDesignAnalysis {
 
 interface UseDocumentDesignProps {
   isOnline: boolean;
-  licenseToken: string | null;
+  sessionToken: string | null;
 }
 
 const getDocumentSnapshot = async (): Promise<{
@@ -89,14 +89,14 @@ const getDocumentSnapshot = async (): Promise<{
   });
 };
 
-export const useDocumentDesign = ({ isOnline, licenseToken }: UseDocumentDesignProps) => {
+export const useDocumentDesign = ({ isOnline, sessionToken }: UseDocumentDesignProps) => {
   const [result, setResult] = useState<DocumentDesignAnalysis | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const analyze = useCallback(async () => {
-    if (!isOnline || !licenseToken || licenseToken === "ERROR_FETCHING_TOKEN") {
-      setError("Ação bloqueada. Verifique sua conexão e o status da licença.");
+    if (!isOnline || !sessionToken) {
+      setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
       return;
     }
 
@@ -112,8 +112,11 @@ export const useDocumentDesign = ({ isOnline, licenseToken }: UseDocumentDesignP
 
       const response = await fetch(`${BACKEND_URL}/api/v1/design/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentText, paragraphs, licenseToken }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ documentText, paragraphs }),
       });
 
       if (!response.ok) {
@@ -129,7 +132,7 @@ export const useDocumentDesign = ({ isOnline, licenseToken }: UseDocumentDesignP
     } finally {
       setIsLoading(false);
     }
-  }, [isOnline, licenseToken]);
+  }, [isOnline, sessionToken]);
 
   return { result, isLoading, error, analyze };
 };

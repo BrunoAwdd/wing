@@ -11,7 +11,7 @@ import {
   shorthands,
 } from "@fluentui/react-components";
 import { ArrowLeft24Regular } from "@fluentui/react-icons";
-import { useMicrosoftAuth } from "../hooks/useMicrosoftAuth";
+import type { WingSessionUser } from "../services/sessionService";
 
 const useStyles = makeStyles({
   root: {
@@ -52,6 +52,8 @@ interface SettingsPageProps {
   onToneChange: (tone: string) => void;
   onLanguageChange: (language: string) => void;
   onBack: () => void;
+  user: WingSessionUser;
+  onSignOut: () => void;
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({
@@ -60,10 +62,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   onToneChange,
   onLanguageChange,
   onBack,
+  user,
+  onSignOut,
 }) => {
   const styles = useStyles();
-  const { login, loginWithDialog, isSSOFailed, isAuthenticated, user, isLoading, error } =
-    useMicrosoftAuth();
 
   return (
     <div className={styles.root}>
@@ -96,28 +98,21 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
 
         <div className={styles.field}>
-          <Label>Licença Microsoft</Label>
-          {isAuthenticated ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-              <Text>Conectado como: {user?.email}</Text>
+          <Label>Conta Wing</Label>
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+            <Text>{user.displayName || user.email}</Text>
+            {user.displayName && (
               <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                Plano: {user?.plan?.toUpperCase()}
+                {user.email}
               </Text>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <Button appearance="primary" onClick={login} disabled={isLoading}>
-                {isLoading ? "Verificando..." : "Verificar Licença (Microsoft Store)"}
-              </Button>
-
-              {isSSOFailed && (
-                <Button appearance="secondary" onClick={loginWithDialog} disabled={isLoading}>
-                  Verificar com Conta Pessoal
-                </Button>
-              )}
-            </div>
-          )}
-          {error && <Text style={{ color: tokens.colorPaletteRedForeground1 }}>{error}</Text>}
+            )}
+            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+              Plano: {user.plan.toUpperCase()}
+            </Text>
+          </div>
+          <Button appearance="secondary" onClick={onSignOut}>
+            Sair
+          </Button>
         </div>
       </div>
     </div>

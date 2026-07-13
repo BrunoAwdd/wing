@@ -1,6 +1,6 @@
 # RFC 016 - Aposentadoria de Agents Hub e Maestro
 
-**Status:** Proposto
+**Status:** Implementado
 **Autor:** Bruno Oliveira
 **Data:** 2026-07-11
 **Audiência:** Produto e Engenharia
@@ -10,9 +10,9 @@
 
 ## 1. Decisão
 
-O Wing aposentará Agents Hub e Maestro Planner. Eles não pertencem ao produto comercial atual nem ao roadmap de features incubadas.
+O Wing aposentou Agents Hub e Maestro Planner. Eles não pertencem ao produto comercial atual nem ao roadmap de features incubadas.
 
-A aposentadoria será uma remoção real de código, rotas, inicialização e assets relacionados. O trabalho será executado em uma etapa posterior; este RFC contém somente o plano.
+A aposentadoria foi executada como remoção real de código, rotas, inicialização, assets e persistência relacionados.
 
 ## 2. Motivo
 
@@ -155,6 +155,16 @@ Eles não devem ser apagados. Devem receber um cabeçalho `Superseded by RFC 016
 
 R1 e R2 devem ocorrer em commits separados. Se uma dependência não mapeada surgir, reverter apenas o commit da fase afetada, sem restaurar toda a arquitetura aposentada.
 
-## 10. Entregável da próxima etapa
+## 10. Registro de implementação
 
-Uma PR exclusiva para aposentadoria, sem misturar gateway Stripe ou mudanças de produto. Ela deve conter R1 e R2; a remoção de dados de R3 exige aprovação própria.
+Implementado em 2026-07-12:
+
+- rotas de Agents, Maestro, Extensions e MCP removidas do startup;
+- serviços e router exclusivos removidos;
+- manifests locais e gerados removidos;
+- dependência `json5`, exclusiva do parser de Agents, removida;
+- migration histórica preservada e migration idempotente de retirada adicionada;
+- banco configurado verificado sem tabela `agents` em `wing` ou `public`;
+- testes de regressão adicionados para impedir o retorno dos endpoints aposentados.
+
+O roadmap comercial ativo está em `DOCS/COMMERCIAL_LAUNCH_ROADMAP.md`.

@@ -43,7 +43,7 @@ O lançamento mantém as capacidades que já resolvem trabalho recorrente e desl
 
 O desligamento é reversível e segue o RFC 013.
 
-Agents Hub e Maestro não são features futuras deste produto. Eles estão aposentados e terão o código removido conforme o RFC 016.
+Agents Hub e Maestro não são features futuras deste produto. O código executável foi removido conforme o RFC 016.
 
 ## 4. Experiência principal
 

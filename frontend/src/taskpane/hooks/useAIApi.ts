@@ -6,7 +6,7 @@ import { Paragraph } from "./useWordInteraction";
 import { addOrUpdateChange } from "../services/pendingChangesCache";
 
 interface AIApiProps {
-  licenseToken: string | null;
+  sessionToken: string | null;
   isOnline: boolean;
   originalText: Paragraph[];
   tone: string;
@@ -19,7 +19,7 @@ interface AIApiProps {
 const BACKEND_URL = process.env.BACKEND_URL || "";
 
 export const useAIApi = ({
-  licenseToken,
+  sessionToken,
   isOnline,
   originalText,
   tone,
@@ -37,11 +37,11 @@ export const useAIApi = ({
     setShowRating(false);
 
     if (isSuggestionAvailable) {
-      track("suggestion_rejected", { command: lastCommand });
+      track("suggestion_rejected", { command: lastCommand }, sessionToken);
     }
 
-    if (!isOnline || !licenseToken || licenseToken === "ERROR_FETCHING_TOKEN") {
-      showFluentToast("Ação bloqueada. Verifique sua conexão e o status da licença.", "error");
+    if (!isOnline || !sessionToken) {
+      showFluentToast("Ação bloqueada. Verifique sua conexão e sua sessão.", "error");
       return;
     }
     if (originalText.length === 0) {
@@ -65,18 +65,24 @@ export const useAIApi = ({
     setIsLoading(true); // Ativa o loading
     setLastCommand(commandToExecute);
     addLog(`Enviando comando: "${commandToExecute}"`, "info");
-    track("prompt_sent", {
-      command: commandToExecute,
-      text_length: originalText.map((p) => p.text).join("\n").length,
-    });
+    track(
+      "prompt_sent",
+      {
+        command: commandToExecute,
+        text_length: originalText.map((p) => p.text).join("\n").length,
+      },
+      sessionToken
+    );
 
     try {
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
         body: JSON.stringify({
           text: originalText,
-          licenseToken: licenseToken,
           options: { tone, language },
         }),
       });
@@ -133,7 +139,7 @@ export const useAIApi = ({
       addLog("Sugestão recebida!", "success");
     } catch (error) {
       console.error("Erro ao chamar o backend:", error);
-      track("error", { type: "backend_error", message: (error as Error).message });
+      track("error", { type: "backend_error", message: (error as Error).message }, sessionToken);
       showFluentToast("Erro ao obter sugestão. Verifique o console.", "error");
       setSuggestedText([]);
       setIsSuggestionAvailable(false);
