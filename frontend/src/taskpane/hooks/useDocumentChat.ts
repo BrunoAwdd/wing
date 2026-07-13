@@ -12,6 +12,7 @@ export interface ChatMessage {
 interface UseDocumentChatProps {
   isOnline: boolean;
   sessionToken: string | null;
+  qualityLevel: string;
 }
 
 // Função auxiliar para ler o documento inteiro como texto puro
@@ -24,7 +25,7 @@ const getDocumentAsText = async (): Promise<string> => {
   });
 };
 
-export const useDocumentChat = ({ isOnline, sessionToken }: UseDocumentChatProps) => {
+export const useDocumentChat = ({ isOnline, sessionToken, qualityLevel }: UseDocumentChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -98,7 +99,7 @@ export const useDocumentChat = ({ isOnline, sessionToken }: UseDocumentChatProps
             "Content-Type": "application/json",
             Authorization: `Bearer ${sessionToken}`,
           },
-          body: JSON.stringify({ sessionId, message }),
+          body: JSON.stringify({ sessionId, message, qualityLevel }),
         });
 
         if (!response.ok || !response.body) {
@@ -131,7 +132,7 @@ export const useDocumentChat = ({ isOnline, sessionToken }: UseDocumentChatProps
         setIsLoading(false);
       }
     },
-    [sessionId, sessionToken]
+    [sessionId, sessionToken, qualityLevel]
   );
 
   return { messages, isLoading, error, startAnalysis, sendMessage, isSessionStarted: !!sessionId };

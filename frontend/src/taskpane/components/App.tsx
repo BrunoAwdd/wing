@@ -93,6 +93,8 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const [showRating, setShowRating] = useState(false);
   const [tone, setTone] = useState("formal");
   const [language, setLanguage] = useState("inglês");
+  // QUICK_MODEL_ROUTING_PLAN Entrega 3: "usar Equilibrado como padrão".
+  const [qualityLevel, setQualityLevel] = useState("equilibrado");
 
   const addLog = useCallback((message: string, type: LogEntry["type"]) => {
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -153,6 +155,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     originalText,
     tone,
     language,
+    qualityLevel,
     addLog,
     showFluentToast,
     setShowRating,
@@ -265,8 +268,10 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
       <SettingsPage
         tone={tone}
         language={language}
+        qualityLevel={qualityLevel}
         onToneChange={setTone}
         onLanguageChange={setLanguage}
+        onQualityLevelChange={setQualityLevel}
         onBack={() => setView("main")}
         user={sessionUser}
         onSignOut={() => void signOut()}
@@ -282,6 +287,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         insertHtmlAtCursor={insertHtmlAtCursor}
         isOnline={isOnline}
         sessionToken={sessionToken}
+        qualityLevel={qualityLevel}
       />
     );
   }

@@ -9,9 +9,41 @@ import {
   estimateTokens,
   resolveActionModel,
 } from "./creditUsage.ts";
+import {
+  isQualityLevelAllowedForPlan,
+  isSelectableQualityLevel,
+  resolveQualityLevelModel,
+} from "./qualityLevels.ts";
 
 // Tipos que estavam em api.routes.ts
 type Paragraph = { id: string; text: string };
+
+// Mesmo nome de env var usado em billing.routes.ts (/estimate) — o limite
+// de tamanho é o mesmo pros dois, senão a estimativa aceita um texto que a
+// execução real rejeitaria (ou vice-versa).
+const MAX_ACTION_INPUT_CHARS = Number(
+  Deno.env.get("WING_ACTION_MAX_INPUT_CHARS") || "120000",
+);
+
+interface ActionModelOptions {
+  model?: string;
+  qualityLevel?: unknown;
+}
+
+export const resolveActionExecutionModel = (
+  actionName: string,
+  options: ActionModelOptions | undefined,
+  defaults: { generalModel?: string; translationModel?: string } = {},
+): string =>
+  actionName === "rewrite"
+    ? resolveQualityLevelModel(options?.qualityLevel)
+    : resolveActionModel(
+      actionName,
+      undefined,
+      defaults.generalModel ?? Deno.env.get("GEMINI_MODEL"),
+      defaults.translationModel ?? Deno.env.get("WING_TRANSLATION_MODEL") ??
+        "gemini-2.5-flash-lite",
+    );
 
 // Helper para coletar o stream da IA
 async function collectStream(stream: AsyncGenerator<string>): Promise<string> {
@@ -47,9 +79,36 @@ export const handleStreamRequest = async (
     }
     console.log("[HANDLER] 4. Input validado (parágrafos existem)");
 
+    const totalChars = paragraphs.map((p) => p.text).join("\n").length;
+    if (totalChars > MAX_ACTION_INPUT_CHARS) {
+      ctx.response.status = 400;
+      ctx.response.body = {
+        error:
+          `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
+      };
+      return;
+    }
+
     const entitlement = await billingService.getEntitlement(auth.accountId);
 
-    const totalChars = paragraphs.map((p) => p.text).join("\n").length;
+    // Autorização por nível (QUICK_MODEL_ROUTING_PLAN, gate de saída): ter
+    // créditos suficientes não basta pra usar "profundo" — exige plano
+    // pago. Sem isso, uma conta Free com créditos sobrando usaria o mesmo
+    // modelo caro que só o plano Pro paga por assinatura. Bloqueia ANTES de
+    // reservar crédito ou chamar a IA, igual à cota (RFC 015 §11).
+    if (
+      actionName === "rewrite" &&
+      isSelectableQualityLevel(options?.qualityLevel) &&
+      !isQualityLevelAllowedForPlan(options.qualityLevel, entitlement.plan)
+    ) {
+      ctx.response.status = 402;
+      ctx.response.body = {
+        error: "O nível Profundo requer o Wing Pro. Assine para usá-lo.",
+        code: "quality_level_requires_upgrade",
+      };
+      return;
+    }
+
     const structuredPrompt = promptBuilder(
       JSON.stringify(paragraphs, null, 2),
       options,
@@ -57,12 +116,15 @@ export const handleStreamRequest = async (
     const maxOutputTokens = Number(
       Deno.env.get("WING_ACTION_MAX_OUTPUT_TOKENS") || "4096",
     );
-    const billableModel = resolveActionModel(
-      actionName,
-      options?.model,
-      Deno.env.get("GEMINI_MODEL"),
-      Deno.env.get("WING_TRANSLATION_MODEL") || "gemini-2.5-flash-lite",
-    );
+    // "rewrite" é a única ação de texto que aceita nível de qualidade
+    // (QUICK_MODEL_ROUTING_PLAN Entrega 2) — o cliente manda um nível
+    // (rápido/equilibrado/profundo), nunca um nome de modelo; o backend
+    // resolve o modelo real. As demais ações (fix, translate, summarize)
+    // usam sempre um modelo fixo — nunca `options?.model` do cliente. Sem
+    // essa segunda condição, um POST direto em /fix ou /summarize com
+    // options.model="claude-opus-4.8" (ou qualquer outro) executava e
+    // cobrava naquele modelo, ignorando por completo o catálogo protegido.
+    const billableModel = resolveActionExecutionModel(actionName, options);
     const reservedCharge = estimateActionCharge(
       structuredPrompt,
       billableModel,

@@ -394,3 +394,60 @@ Deno.test("M3 chat: limita quantidade de mensagens concluídas", async () => {
   }, token);
   assertEquals(blocked?.status, 429);
 });
+
+Deno.test("M4.5 chat: nível 'profundo' exige plano pago, mesmo com crédito disponível", async () => {
+  let providerCalls = 0;
+  const app = createTestApp({
+    getEntitlement: async () => ({ plan: "free", status: "inactive" }),
+    generateStream: () => {
+      providerCalls += 1;
+      return streamFrom(["não deve ocorrer"]);
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "profundo",
+  }, token);
+
+  assertEquals(response?.status, 402);
+  const body = await response!.json();
+  assertEquals(body.code, "quality_level_requires_upgrade");
+  assertEquals(providerCalls, 0);
+});
+
+Deno.test("M4.5 chat: nível 'profundo' com plano Pro chama e cobra o mesmo modelo resolvido", async () => {
+  let executedModel: string | undefined;
+  let reservedModel: string | undefined;
+  const app = createTestApp({
+    getEntitlement: async () => ({ plan: "pro", status: "active" }),
+    reserveCredits: async (_accountId, model, credits) => {
+      reservedModel = model;
+      return {
+        reservationId: "00000000-0000-0000-0000-000000000009",
+        creditsUsed: credits,
+        allowed: true,
+      };
+    },
+    generateStream: (_message, _history, options) => {
+      executedModel = options?.model;
+      return streamFrom(["resposta profunda"]);
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "profundo",
+  }, token);
+  await response!.text();
+
+  assertEquals(response?.status, 200);
+  assertEquals(reservedModel, "claude-sonnet-5");
+  assertEquals(executedModel, "claude-sonnet-5");
+});

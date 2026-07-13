@@ -8,10 +8,24 @@ import {
 } from "../services/stripeService.ts";
 import { track } from "../services/telemetry.ts";
 import type { TelemetryEventName } from "../services/telemetryCatalog.ts";
+import { estimateActionCharge } from "../services/creditUsage.ts";
+import { resolveQualityLevelModel } from "../services/qualityLevels.ts";
+import { buildRewritePrompt } from "../prompts.ts";
 import {
   getWingAuth,
   requireWingSession,
 } from "../middlewares/authMiddleware.ts";
+
+const MAX_OUTPUT_TOKENS_DEFAULT = Number(
+  Deno.env.get("WING_ACTION_MAX_OUTPUT_TOKENS") || "4096",
+);
+
+// Mesmo nome de env var usado em requestHandler.ts — o limite de tamanho é
+// o mesmo pros dois, senão a estimativa aceita um texto que a execução real
+// rejeitaria (ou vice-versa).
+const MAX_ACTION_INPUT_CHARS = Number(
+  Deno.env.get("WING_ACTION_MAX_INPUT_CHARS") || "120000",
+);
 
 const FREE_MONTHLY_CREDIT_LIMIT = Number(
   Deno.env.get("WING_FREE_MONTHLY_CREDITS") || "1000",
@@ -34,6 +48,11 @@ export interface BillingRouteDependencies {
   recordWebhookEventIfNew: typeof billingService.recordWebhookEventIfNew;
   removeWebhookEvent: typeof billingService.removeWebhookEvent;
   syncSubscriptionFromStripe: typeof billingService.syncSubscriptionFromStripe;
+  estimateCharge: (
+    paragraphs: Array<{ id: string; text: string }>,
+    qualityLevel: unknown,
+    tone?: string,
+  ) => { credits: number };
   trackEvent: typeof track;
 }
 
@@ -60,6 +79,17 @@ const defaultDependencies: BillingRouteDependencies = {
   recordWebhookEventIfNew: billingService.recordWebhookEventIfNew,
   removeWebhookEvent: billingService.removeWebhookEvent,
   syncSubscriptionFromStripe: billingService.syncSubscriptionFromStripe,
+  // Estima sobre o MESMO prompt estruturado que a execução real vai
+  // reservar/cobrar (basePrompt + JSON dos parágrafos), não sobre o texto
+  // cru — senão a estimativa mostrada fica sistematicamente menor que a
+  // reserva de verdade (o wrapper de instruções + JSON adiciona ~700-900
+  // caracteres que nunca entravam na conta).
+  estimateCharge: (paragraphs, qualityLevel, tone) =>
+    estimateActionCharge(
+      buildRewritePrompt(JSON.stringify(paragraphs, null, 2), { tone }),
+      resolveQualityLevelModel(qualityLevel),
+      MAX_OUTPUT_TOKENS_DEFAULT,
+    ),
   trackEvent: track,
 };
 
@@ -112,6 +142,51 @@ export const createBillingRouter = (
           : null,
       },
     };
+  });
+
+  // QUICK_MODEL_ROUTING_PLAN Entrega 3: "mostrar estimativa de créditos para
+  // operações Profundo". Só devolve um número — nunca o modelo real por
+  // trás do nível, que fica só no backend.
+  router.post("/estimate", requireWingSession, async (ctx) => {
+    let body: { paragraphs?: unknown; qualityLevel?: unknown; tone?: unknown } = {};
+    try {
+      body = await ctx.request.body.json();
+    } catch {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Corpo JSON inválido." };
+      return;
+    }
+
+    const paragraphs = Array.isArray(body.paragraphs)
+      ? body.paragraphs.filter(
+        (p): p is { id: string; text: string } =>
+          typeof p === "object" && p !== null &&
+          typeof (p as { text?: unknown }).text === "string",
+      )
+      : [];
+
+    // Mesmo contrato de tamanho da operação real (requestHandler.ts): sem
+    // isso, a estimativa aceitava um texto vazio (retornando um número sem
+    // sentido) ou arbitrariamente grande, que a execução real rejeitaria.
+    const totalChars = paragraphs.map((p) => p.text).join("\n").length;
+    if (totalChars === 0) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "paragraphs não pode ser vazio." };
+      return;
+    }
+    if (totalChars > MAX_ACTION_INPUT_CHARS) {
+      ctx.response.status = 400;
+      ctx.response.body = {
+        error: `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
+      };
+      return;
+    }
+
+    const tone = typeof body.tone === "string" ? body.tone : undefined;
+    const charge = dependencies.estimateCharge(paragraphs, body.qualityLevel, tone);
+
+    ctx.response.status = 200;
+    ctx.response.body = { credits: charge.credits };
   });
 
   router.post("/checkout", requireWingSession, async (ctx) => {

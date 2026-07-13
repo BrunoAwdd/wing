@@ -55,8 +55,10 @@ const useStyles = makeStyles({
 interface SettingsPageProps {
   tone: string;
   language: string;
+  qualityLevel: string;
   onToneChange: (tone: string) => void;
   onLanguageChange: (language: string) => void;
+  onQualityLevelChange: (qualityLevel: string) => void;
   onBack: () => void;
   user: WingSessionUser;
   onSignOut: () => void;
@@ -66,8 +68,10 @@ interface SettingsPageProps {
 const SettingsPage: React.FC<SettingsPageProps> = ({
   tone,
   language,
+  qualityLevel,
   onToneChange,
   onLanguageChange,
+  onQualityLevelChange,
   onBack,
   user,
   onSignOut,
@@ -146,6 +150,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             value={language}
             onChange={(_, data) => onLanguageChange(data.value)}
           />
+        </div>
+
+        <div className={styles.field}>
+          <Label id="quality-level-radiogroup-label">Nível de Qualidade (Reescrita)</Label>
+          <RadioGroup
+            value={qualityLevel}
+            onChange={(_, data) => onQualityLevelChange(data.value as string)}
+            aria-labelledby="quality-level-radiogroup-label"
+          >
+            <Radio value="rapido" label="Rápido" />
+            <Radio value="equilibrado" label="Equilibrado" />
+            <Radio value="profundo" label="Profundo" />
+          </RadioGroup>
         </div>
 
         <div className={styles.field}>

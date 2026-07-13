@@ -92,6 +92,7 @@ interface DocumentAnalysisPageProps {
   insertHtmlAtCursor: (html: string) => Promise<void>;
   isOnline: boolean;
   sessionToken: string | null;
+  qualityLevel: string;
 }
 
 const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
@@ -99,10 +100,11 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
   insertHtmlAtCursor,
   isOnline,
   sessionToken,
+  qualityLevel,
 }) => {
   const styles = useStyles();
   const { messages, isLoading, error, startAnalysis, sendMessage, isSessionStarted } =
-    useDocumentChat({ isOnline, sessionToken });
+    useDocumentChat({ isOnline, sessionToken, qualityLevel });
   const [currentMessage, setCurrentMessage] = useState("");
   const messageEndRef = useRef<null | HTMLDivElement>(null);
 

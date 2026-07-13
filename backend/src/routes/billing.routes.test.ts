@@ -31,6 +31,7 @@ const createTestApp = (overrides: Partial<BillingRouteDependencies> = {}) => {
     recordWebhookEventIfNew: async () => true,
     removeWebhookEvent: async () => undefined,
     syncSubscriptionFromStripe: async () => undefined,
+    estimateCharge: () => ({ credits: 42 }),
     trackEvent: () => undefined,
     ...overrides,
   };
@@ -330,4 +331,102 @@ Deno.test("Billing /webhook: falha no processamento desfaz o registro de idempot
 
   assertEquals(response?.status, 500);
   assertEquals(removedEventId, "evt_fail");
+});
+
+Deno.test("Billing /estimate: exige sessão Wing", async () => {
+  const response = await createTestApp().handle(
+    new Request("http://localhost/api/v1/billing/estimate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paragraphs: [{ id: "1", text: "olá" }],
+        qualityLevel: "profundo",
+      }),
+    }),
+  );
+  assertEquals(response?.status, 401);
+});
+
+Deno.test("Billing /estimate: retorna a estimativa calculada sobre os mesmos parágrafos/nível da execução real", async () => {
+  const token = (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
+  let receivedParagraphs: unknown;
+  let receivedLevel: unknown;
+  let receivedTone: unknown;
+  const app = createTestApp({
+    estimateCharge: (paragraphs, qualityLevel, tone) => {
+      receivedParagraphs = paragraphs;
+      receivedLevel = qualityLevel;
+      receivedTone = tone;
+      return { credits: 77 };
+    },
+  });
+  const response = await app.handle(
+    new Request("http://localhost/api/v1/billing/estimate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        paragraphs: [{ id: "1", text: "texto de exemplo" }],
+        qualityLevel: "profundo",
+        tone: "formal",
+      }),
+    }),
+  );
+
+  assertEquals(response?.status, 200);
+  const body = await response!.json();
+  assertEquals(body, { credits: 77 });
+  assertEquals(receivedParagraphs, [{ id: "1", text: "texto de exemplo" }]);
+  assertEquals(receivedLevel, "profundo");
+  assertEquals(receivedTone, "formal");
+});
+
+Deno.test("Billing /estimate: parágrafos vazios ou ausentes retornam 400 (mesmo contrato da execução real)", async () => {
+  const token = (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
+  const app = createTestApp();
+
+  const missing = await app.handle(
+    new Request("http://localhost/api/v1/billing/estimate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ qualityLevel: "rapido" }),
+    }),
+  );
+  assertEquals(missing?.status, 400);
+
+  const empty = await app.handle(
+    new Request("http://localhost/api/v1/billing/estimate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ paragraphs: [{ id: "1", text: "" }], qualityLevel: "rapido" }),
+    }),
+  );
+  assertEquals(empty?.status, 400);
+});
+
+Deno.test("Billing /estimate: texto acima do limite compartilhado retorna 400", async () => {
+  const token = (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
+  const response = await createTestApp().handle(
+    new Request("http://localhost/api/v1/billing/estimate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        paragraphs: [{ id: "1", text: "a".repeat(120_001) }],
+        qualityLevel: "rapido",
+      }),
+    }),
+  );
+
+  assertEquals(response?.status, 400);
 });

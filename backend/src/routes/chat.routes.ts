@@ -12,6 +12,11 @@ import {
   estimateTokens,
   resolveBillableModel,
 } from "../services/creditUsage.ts";
+import {
+  isQualityLevelAllowedForPlan,
+  isSelectableQualityLevel,
+  resolveQualityLevelModel,
+} from "../services/qualityLevels.ts";
 
 export interface ChatHistoryEntry {
   role: "user" | "model";
@@ -206,7 +211,7 @@ export const createChatRouter = (
     const body = await readJson(ctx);
     if (!body) return;
 
-    const { sessionId, message } = body;
+    const { sessionId, message, qualityLevel } = body;
     if (!isNonEmptyString(sessionId) || !isNonEmptyString(message)) {
       ctx.response.status = 400;
       ctx.response.body = { error: "sessionId e message são obrigatórios." };
@@ -263,7 +268,7 @@ export const createChatRouter = (
     let entitlement: Awaited<ReturnType<typeof dependencies.getEntitlement>>;
     let reservationId = "";
     let maxOutputTokens = 0;
-    const billableModel = resolveBillableModel(Deno.env.get("GEMINI_MODEL"));
+    let billableModel = resolveBillableModel(Deno.env.get("GEMINI_MODEL"));
     const historyBeforeMessage = session.history.slice();
     try {
       if (await dependencies.isAccountRevoked(auth.accountId)) {
@@ -277,6 +282,26 @@ export const createChatRouter = (
       }
 
       entitlement = await dependencies.getEntitlement(auth.accountId);
+
+      // Chat também aceita nível de qualidade (QUICK_MODEL_ROUTING_PLAN
+      // Entrega 2: "reescrita e chat aceitam rápido, equilibrado e
+      // profundo"). Mesma autorização por plano do rewrite: ter créditos
+      // não basta pra "profundo", exige plano pago. Bloqueia ANTES de
+      // reservar crédito ou chamar a IA.
+      if (
+        isSelectableQualityLevel(qualityLevel) &&
+        !isQualityLevelAllowedForPlan(qualityLevel, entitlement.plan)
+      ) {
+        ctx.response.status = 402;
+        ctx.response.body = {
+          error: "O nível Profundo requer o Wing Pro. Assine para usá-lo.",
+          code: "quality_level_requires_upgrade",
+        };
+        session.inFlight = false;
+        return;
+      }
+      billableModel = resolveQualityLevelModel(qualityLevel);
+
       const freeMonthlyLimit = positiveInteger(
         "WING_FREE_MONTHLY_CREDITS",
         1_000,
@@ -320,7 +345,12 @@ export const createChatRouter = (
       stream = dependencies.generateStream(
         trimmedMessage,
         historyBeforeMessage,
-        { entitlement: entitlement.plan, maxOutputTokens },
+        // `model: billableModel` é o que garante que o modelo executado é o
+        // mesmo que foi reservado/cobrado acima — sem isso, a reserva de
+        // crédito usa o nível escolhido mas a chamada de IA de fato caía
+        // sempre no provedor padrão (Gemini), desalinhando execução e
+        // cobrança quando o nível resolvia pra outro provedor.
+        { entitlement: entitlement.plan, maxOutputTokens, model: billableModel },
       );
     } catch (error) {
       await dependencies.settleCredits(reservationId, {
