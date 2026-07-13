@@ -28,7 +28,7 @@ router.post("/analyze", async (ctx) => {
 
   const entitlement = await billingService.getEntitlement(auth.accountId);
   const estimatedTokens = Math.ceil(documentText.length / 4);
-  billingService.incrementUsage(auth.accountId, estimatedTokens).catch(
+  billingService.incrementUsage(auth.accountId, estimatedTokens, null).catch(
     (err) => {
       console.error("[DesignRoutes] Failed to track usage:", err);
     },

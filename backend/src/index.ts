@@ -6,6 +6,7 @@ import designRouter from "./routes/design.routes.ts";
 import telemetryRouter from "./routes/telemetry.routes.ts";
 import authRouter from "./routes/auth.routes.ts";
 import magicLinkAuthRouter from "./routes/magicLinkAuth.routes.ts";
+import billingRouter from "./routes/billing.routes.ts";
 
 // Dependências que estavam em api.routes.ts
 import { apiLimiter } from "./middlewares/rateLimiter.ts";
@@ -105,6 +106,11 @@ rootRouter.use(
   apiLimiter,
   magicLinkAuthRouter.routes(),
   magicLinkAuthRouter.allowedMethods(),
+);
+rootRouter.use(
+  "/api/v1/billing",
+  billingRouter.routes(),
+  billingRouter.allowedMethods(),
 );
 // SSO Microsoft incubado (desligado por padrão) — a Wing agora vende direto
 // via Stripe, sem depender do comércio da Microsoft Store, então login por

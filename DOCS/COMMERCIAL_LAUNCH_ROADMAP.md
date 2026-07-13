@@ -2,7 +2,7 @@
 
 **Status:** Ativo
 
-**Atualizado em:** 2026-07-12
+**Atualizado em:** 2026-07-13
 
 **Escopo:** transformar o núcleo comercial definido no RFC 014 em um produto vendável e operável.
 
@@ -20,7 +20,7 @@
 |---|---|---|---|---|
 | M0 | Retirada do runtime aposentado | Concluído | - | Produto sem Agents, Maestro, Extensions ou MCP |
 | M1 | Identidade e sessão Wing | Em validação | M0 | Usuário autenticado de forma confiável |
-| M2 | Stripe, planos e cotas | Pendente | M1 | Wing pode cobrar e aplicar Free/Pro |
+| M2 | Stripe, planos e cotas | Concluído | M1 | Wing pode cobrar e aplicar Free/Pro |
 | M3 | Chat com entitlement e histórico íntegro | Pendente | M1, M2 | Conversa segura e consistente |
 | M4 | Telemetria segura e confiável | Pendente | M1 | Métricas utilizáveis sem expor documentos |
 | M5 | Empacotamento e ambiente de produção | Pendente | M1-M4 | Add-in instalável fora do ambiente de dev |
@@ -67,14 +67,26 @@ Gate de saída:
 
 Entregáveis:
 
-- [ ] implementar `GET /api/v1/billing/status`;
-- [ ] implementar `POST /api/v1/billing/checkout`;
-- [ ] implementar `POST /api/v1/billing/portal`;
-- [ ] implementar webhook Stripe com corpo bruto, assinatura e idempotência;
-- [ ] mapear estados Stripe para entitlement Free/Pro;
-- [ ] implementar incremento atômico e bloqueio da cota Free;
-- [ ] exibir plano, uso, limite, checkout e portal nas configurações;
-- [ ] registrar métricas de checkout, conversão e falha sem dados sensíveis.
+- [x] implementar `GET /api/v1/billing/status`;
+- [x] implementar `POST /api/v1/billing/checkout`;
+- [x] implementar `POST /api/v1/billing/portal`;
+- [x] implementar webhook Stripe com corpo bruto, assinatura e idempotência;
+- [x] mapear estados Stripe para entitlement Free/Pro;
+- [x] implementar incremento atômico e bloqueio da cota Free;
+- [x] exibir plano, uso, limite, checkout e portal nas configurações;
+- [x] registrar métricas de checkout, conversão e falha sem dados sensíveis.
+
+Concluído em 2026-07-13. A migration e a função de consumo atômico foram
+validadas no Supabase local. O teste de integração da RPC comprovou incremento
+dentro do limite e bloqueio sem consumo adicional após o limite. Os eventos de
+assinatura possuem métricas distintas para início, atualização, cancelamento,
+pausa e retomada. A suíte encerrou com 42 testes aprovados; o teste de banco é
+opt-in por depender da infraestrutura local.
+
+O smoke test completo no Stripe Test Mode será executado na preparação do
+ambiente que possuir `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e
+`STRIPE_PRICE_PRO`. Essa validação operacional não reabre a implementação do
+milestone.
 
 Gate de saída:
 

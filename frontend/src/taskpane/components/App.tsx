@@ -270,6 +270,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         onBack={() => setView("main")}
         user={sessionUser}
         onSignOut={() => void signOut()}
+        sessionToken={sessionToken}
       />
     );
   }

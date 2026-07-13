@@ -48,13 +48,24 @@ export const handleStreamRequest = async (
     const totalChars = paragraphs.map((p) => p.text).join("\n").length;
     const estimatedTokens = Math.ceil(totalChars / 4);
 
-    // NEW: Track usage
-    // Fire and forget usage tracking to not block response.
-    billingService.incrementUsage(auth.accountId, estimatedTokens).catch(
-      (err) => {
-        console.error("[HANDLER] Failed to track usage:", err);
-      },
-    );
+    // RFC 015 §11: cota Free é aplicada ANTES de chamar o provedor de IA.
+    // Incremento atômico e condicional (função SQL) — evita condição de
+    // corrida sob chamadas concorrentes da mesma conta, e não conta a
+    // tentativa que estoura o limite (senão requests_count infla a cada
+    // retry do usuário, mesmo sem nunca ter chamado a IA).
+    const freeMonthlyLimit = Number(Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20");
+    const usageLimit = entitlement.plan === "free" ? freeMonthlyLimit : null;
+    const { allowed } = await billingService.incrementUsage(auth.accountId, estimatedTokens, usageLimit);
+
+    if (!allowed) {
+      console.log("[HANDLER] Cota Free excedida.");
+      ctx.response.status = 402;
+      ctx.response.body = {
+        error: "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
+        code: "quota_exceeded",
+      };
+      return;
+    }
 
     track(
       "prompt_sent",

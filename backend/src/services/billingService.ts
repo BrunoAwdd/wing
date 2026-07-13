@@ -1,5 +1,6 @@
 import { supabase } from "./supabaseClient.ts";
 import { track } from "./telemetry.ts";
+import { stripeService, type StripeSubscription } from "./stripeService.ts";
 import type { MicrosoftIdentity } from "./microsoftIdentityService.ts";
 
 export interface Account {
@@ -8,17 +9,27 @@ export interface Account {
   display_name?: string | null;
   microsoft_tenant_id?: string | null;
   microsoft_object_id?: string | null;
-  stripe_customer_id?: string;
+  stripe_customer_id?: string | null;
   created_at: string;
 }
 
+// União completa dos status que a Stripe pode enviar (RFC 015 §8) — só
+// "trialing"/"active" contam como Pro em getEntitlement, o resto é Free.
 export interface Subscription {
   id: string;
   account_id: string;
   external_subscription_id: string;
   provider: "stripe" | "microsoft";
   plan: "free" | "pro" | "team" | "enterprise";
-  status: "trialing" | "active" | "past_due" | "canceled" | "incomplete";
+  status:
+    | "trialing"
+    | "active"
+    | "past_due"
+    | "canceled"
+    | "incomplete"
+    | "incomplete_expired"
+    | "unpaid"
+    | "paused";
   current_period_end: string;
 }
 
@@ -166,53 +177,101 @@ export const billingService = {
   },
 
   // --- Usage ---
-  incrementUsage: async (accountId: string, tokens: number) => {
+  // Incremento atômico via função SQL (RPC) — evita a condição de corrida de
+  // um read-then-write em JS quando duas chamadas concorrem no mesmo mês.
+  // `limit` é null pra planos pagos (sem teto); quando informado, a função só
+  // incrementa se ainda houver cota — a tentativa que estouraria o limite não
+  // é contada, senão retries/re-tentativas do usuário inflam requests_count
+  // indefinidamente mesmo sem nunca terem chamado a IA.
+  incrementUsage: async (
+    accountId: string,
+    tokens: number,
+    limit: number | null,
+  ): Promise<{ requestsCount: number; allowed: boolean }> => {
     const now = new Date();
     const yyyymm = parseInt(
       `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}`,
     );
 
-    // Upsert usage record
-    // Note: Supabase/PostgREST doesn't have a clean atomic increment without a function or raw SQL usually.
-    // But we can try an upsert with on_conflict if we had a unique constraint (we do).
-    // However, incrementing requires reading first or using a stored procedure.
-    // For MVP Deno, let's read-then-update (optimistic locking not strictly needed for MVP but good practice).
+    const { data, error } = await supabase.rpc("increment_usage_and_check_limit", {
+      p_account_id: accountId,
+      p_yyyymm: yyyymm,
+      p_tokens: tokens,
+      p_limit: limit,
+    });
+    if (error) throw error;
 
-    const { data: existing } = await supabase
-      .from("usage_monthly")
-      .select("*")
-      .eq("account_id", accountId)
-      .eq("yyyymm", yyyymm)
-      .single();
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      requests_count: number;
+      allowed: boolean;
+    };
 
-    let requestsCount = 1;
-    let tokensUsed = tokens;
-
-    if (existing) {
-      requestsCount = existing.requests_count + 1;
-      tokensUsed = existing.tokens_used + tokens;
-      await supabase
-        .from("usage_monthly")
-        .update({
-          requests_count: requestsCount,
-          tokens_used: tokensUsed,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existing.id);
-    } else {
-      await supabase.from("usage_monthly").insert({
-        account_id: accountId,
-        yyyymm,
-        requests_count: requestsCount,
-        tokens_used: tokensUsed,
-      });
+    if (row.allowed) {
+      // RFC 014 §8: "consumo de cota Free" — só contagens, sem texto do documento.
+      track(
+        "usage_incremented",
+        { yyyymm, requests_count: row.requests_count, tokens_used: tokens },
+        accountId,
+      );
     }
 
-    // RFC 014 §8: "consumo de cota Free" — só contagens, sem texto do documento.
-    track(
-      "usage_incremented",
-      { yyyymm, requests_count: requestsCount, tokens_used: tokensUsed },
-      accountId,
-    );
+    return { requestsCount: row.requests_count, allowed: row.allowed };
+  },
+
+  // --- Stripe ---
+  getOrCreateStripeCustomer: async (account: Account): Promise<string> => {
+    if (account.stripe_customer_id) return account.stripe_customer_id;
+
+    const customerId = await stripeService.createCustomer(account.email);
+    const { error } = await supabase
+      .from("accounts")
+      .update({ stripe_customer_id: customerId })
+      .eq("id", account.id);
+    if (error) throw error;
+
+    return customerId;
+  },
+
+  // Idempotência de webhook: a linha só existe se o evento ainda não foi
+  // processado (id = Stripe event.id, PK). Insert falhando por conflito de
+  // chave única == evento duplicado, sem precisar de "select antes".
+  recordWebhookEventIfNew: async (event: {
+    id: string;
+    type: string;
+    payload: unknown;
+  }): Promise<boolean> => {
+    const { error } = await supabase.from("webhook_events").insert({
+      id: event.id,
+      type: event.type,
+      payload: event.payload,
+    });
+    if (!error) return true;
+    if (error.code === "23505") return false;
+    throw error;
+  },
+
+  // Compensação: se o processamento do evento falhar depois do registro de
+  // idempotência acima, a linha precisa sumir — senão o retry da Stripe
+  // (mesmo event.id) bate no unique_violation e é descartado como duplicado,
+  // e o evento nunca é reprocessado.
+  removeWebhookEvent: async (eventId: string): Promise<void> => {
+    const { error } = await supabase.from("webhook_events").delete().eq("id", eventId);
+    if (error) throw error;
+  },
+
+  syncSubscriptionFromStripe: async (
+    stripeSubscription: StripeSubscription,
+    accountId: string,
+  ): Promise<void> => {
+    await billingService.upsertSubscription({
+      account_id: accountId,
+      external_subscription_id: stripeSubscription.id,
+      provider: "stripe",
+      plan: "pro",
+      status: stripeSubscription.status as Subscription["status"],
+      current_period_end: new Date(
+        stripeSubscription.current_period_end * 1000,
+      ).toISOString(),
+    });
   },
 };
