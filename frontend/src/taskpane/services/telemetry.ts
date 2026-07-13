@@ -11,10 +11,21 @@
 
 const BACKEND_URL = process.env.BACKEND_URL || "";
 
+export type ClientTelemetryEventName =
+  | "panel_opened"
+  | "suggestion_rejected"
+  | "suggestion_accepted_all"
+  | "suggestion_rejected_all"
+  | "suggestion_accepted_single"
+  | "suggestion_rejected_single"
+  | "suggestion_rated"
+  | "suggestion_failed"
+  | "memory_sync_completed";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const track = (
-  eventName: string,
-  properties?: Record<string, any>,
+  eventName: ClientTelemetryEventName,
+  properties?: Record<string, string | number>,
   sessionToken?: string | null
 ) => {
   console.log(`[TELEMETRY] Event: ${eventName}`, properties || "");

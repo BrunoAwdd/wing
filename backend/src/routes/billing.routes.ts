@@ -2,18 +2,26 @@ import { Router } from "../deps.ts";
 import { supabase } from "../services/supabaseClient.ts";
 import { type Account, billingService } from "../services/billingService.ts";
 import {
-  StripeSignatureError,
-  stripeService,
   type StripeEvent,
+  stripeService,
+  StripeSignatureError,
 } from "../services/stripeService.ts";
 import { track } from "../services/telemetry.ts";
-import { requireWingSession, getWingAuth } from "../middlewares/authMiddleware.ts";
+import type { TelemetryEventName } from "../services/telemetryCatalog.ts";
+import {
+  getWingAuth,
+  requireWingSession,
+} from "../middlewares/authMiddleware.ts";
 
-const FREE_MONTHLY_LIMIT = Number(Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20");
+const FREE_MONTHLY_LIMIT = Number(
+  Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20",
+);
 
 export interface BillingRouteDependencies {
   getAccount: (accountId: string) => Promise<Account>;
-  getEntitlement: (accountId: string) => ReturnType<typeof billingService.getEntitlement>;
+  getEntitlement: (
+    accountId: string,
+  ) => ReturnType<typeof billingService.getEntitlement>;
   getUsage: (accountId: string, yyyymm: number) => Promise<number>;
   getOrCreateStripeCustomer: (account: Account) => Promise<string>;
   createCheckoutSession: typeof stripeService.createCheckoutSession;
@@ -61,7 +69,7 @@ const SUBSCRIPTION_EVENTS = new Set([
 // Nome de evento de telemetria por tipo de evento Stripe — "created" é a
 // única conversão de verdade (Free -> Pro); os demais são mudanças de
 // estado de uma assinatura já existente, não devem ser somados ao funil.
-const SUBSCRIPTION_EVENT_TRACKING: Record<string, string> = {
+const SUBSCRIPTION_EVENT_TRACKING: Record<string, TelemetryEventName> = {
   "customer.subscription.created": "subscription_started",
   "customer.subscription.updated": "subscription_updated",
   "customer.subscription.deleted": "subscription_canceled",
@@ -123,18 +131,24 @@ export const createBillingRouter = (
 
     if (!account.stripe_customer_id) {
       ctx.response.status = 400;
-      ctx.response.body = { error: "Conta ainda não possui assinatura Stripe." };
+      ctx.response.body = {
+        error: "Conta ainda não possui assinatura Stripe.",
+      };
       return;
     }
 
     try {
-      const url = await dependencies.createPortalSession(account.stripe_customer_id);
+      const url = await dependencies.createPortalSession(
+        account.stripe_customer_id,
+      );
       ctx.response.status = 200;
       ctx.response.body = { url };
     } catch (error) {
       console.error("[Billing] Falha ao criar sessão do portal:", error);
       ctx.response.status = 500;
-      ctx.response.body = { error: "Não foi possível abrir o portal de assinatura." };
+      ctx.response.body = {
+        error: "Não foi possível abrir o portal de assinatura.",
+      };
     }
   });
 
@@ -178,13 +192,20 @@ export const createBillingRouter = (
         const accountId = subscription.metadata?.account_id;
         if (accountId) {
           // deno-lint-ignore no-explicit-any
-          await dependencies.syncSubscriptionFromStripe(subscription as any, accountId);
+          await dependencies.syncSubscriptionFromStripe(
+            subscription as any,
+            accountId,
+          );
           // Sinal de conversão real: só "created" marca uma assinatura NOVA.
           // "updated" dispara em renovação, troca de plano, retry de
           // pagamento etc. — dezenas de vezes ao longo da vida de UMA
           // assinatura. Misturar os dois num único evento torna qualquer
           // funil de conversão incontável (super-conta drasticamente).
-          dependencies.trackEvent(SUBSCRIPTION_EVENT_TRACKING[event.type], undefined, accountId);
+          dependencies.trackEvent(
+            SUBSCRIPTION_EVENT_TRACKING[event.type],
+            undefined,
+            accountId,
+          );
         }
       }
       // checkout.session.completed: a assinatura já chega via customer.subscription.created
@@ -193,12 +214,18 @@ export const createBillingRouter = (
       ctx.response.status = 200;
       ctx.response.body = { ok: true };
     } catch (error) {
-      console.error(`[Billing] Falha ao processar webhook ${event.type}:`, error);
+      console.error(
+        `[Billing] Falha ao processar webhook ${event.type}:`,
+        error,
+      );
       // Desfaz o registro de idempotência: sem isso, o próximo retry da
       // Stripe (mesmo event.id) bateria no unique_violation e seria
       // descartado como duplicado sem nunca ser reprocessado.
       await dependencies.removeWebhookEvent(event.id).catch((cleanupError) => {
-        console.error(`[Billing] Falha ao limpar webhook_events para retry de ${event.id}:`, cleanupError);
+        console.error(
+          `[Billing] Falha ao limpar webhook_events para retry de ${event.id}:`,
+          cleanupError,
+        );
       });
       ctx.response.status = 500;
       ctx.response.body = { error: "Falha ao processar o evento." };

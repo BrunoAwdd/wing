@@ -7,6 +7,7 @@ import {
 } from "../services/microsoftIdentityService.ts";
 import { wingSessionService } from "../services/wingSessionService.ts";
 import { track } from "../services/telemetry.ts";
+import type { TelemetryEventName } from "../services/telemetryCatalog.ts";
 
 export interface SessionRouteDependencies {
   validateMicrosoftToken: (token: string) => Promise<MicrosoftIdentity>;
@@ -18,7 +19,7 @@ export interface SessionRouteDependencies {
     tenantId: string;
   }) => Promise<{ token: string; expiresAt: string }>;
   trackEvent: (
-    eventName: string,
+    eventName: TelemetryEventName,
     properties?: Record<string, unknown>,
     accountId?: string,
   ) => void;

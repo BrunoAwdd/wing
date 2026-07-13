@@ -65,15 +65,6 @@ export const useAIApi = ({
     setIsLoading(true); // Ativa o loading
     setLastCommand(commandToExecute);
     addLog(`Enviando comando: "${commandToExecute}"`, "info");
-    track(
-      "prompt_sent",
-      {
-        command: commandToExecute,
-        text_length: originalText.map((p) => p.text).join("\n").length,
-      },
-      sessionToken
-    );
-
     try {
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: "POST",
@@ -139,7 +130,16 @@ export const useAIApi = ({
       addLog("Sugestão recebida!", "success");
     } catch (error) {
       console.error("Erro ao chamar o backend:", error);
-      track("error", { type: "backend_error", message: (error as Error).message }, sessionToken);
+      const errorCode = error instanceof TypeError
+        ? "network_unavailable"
+        : (error as Error).message === "Response body is null"
+        ? "stream_invalid"
+        : "backend_request_failed";
+      track(
+        "suggestion_failed",
+        { command: commandToExecute.toLowerCase(), error_code: errorCode },
+        sessionToken
+      );
       showFluentToast("Erro ao obter sugestão. Verifique o console.", "error");
       setSuggestedText([]);
       setIsSuggestionAvailable(false);

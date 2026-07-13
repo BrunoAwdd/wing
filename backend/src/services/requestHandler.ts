@@ -53,15 +53,22 @@ export const handleStreamRequest = async (
     // corrida sob chamadas concorrentes da mesma conta, e não conta a
     // tentativa que estoura o limite (senão requests_count infla a cada
     // retry do usuário, mesmo sem nunca ter chamado a IA).
-    const freeMonthlyLimit = Number(Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20");
+    const freeMonthlyLimit = Number(
+      Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20",
+    );
     const usageLimit = entitlement.plan === "free" ? freeMonthlyLimit : null;
-    const { allowed } = await billingService.incrementUsage(auth.accountId, estimatedTokens, usageLimit);
+    const { allowed } = await billingService.incrementUsage(
+      auth.accountId,
+      estimatedTokens,
+      usageLimit,
+    );
 
     if (!allowed) {
       console.log("[HANDLER] Cota Free excedida.");
       ctx.response.status = 402;
       ctx.response.body = {
-        error: "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
+        error:
+          "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
         code: "quota_exceeded",
       };
       return;
@@ -104,6 +111,7 @@ export const handleStreamRequest = async (
         async start(controller) {
           const encoder = new TextEncoder();
           let buffer = "";
+          let outputItems = 0;
 
           try {
             for await (const chunk of aiStream) {
@@ -130,6 +138,7 @@ export const handleStreamRequest = async (
                   cleanedLine.endsWith("}")
                 ) {
                   controller.enqueue(encoder.encode(cleanedLine + "\n"));
+                  outputItems += 1;
                 }
               }
             }
@@ -149,16 +158,27 @@ export const handleStreamRequest = async (
                 cleanedLine.endsWith("}")
               ) {
                 controller.enqueue(encoder.encode(cleanedLine + "\n"));
+                outputItems += 1;
               }
             }
 
             console.log(
               "[HANDLER] 8. Stream da IA finalizado e enviado para o cliente.",
             );
+            track(
+              "prompt_completed",
+              { command: actionName, output_items: outputItems },
+              auth.accountId,
+            );
           } catch (streamError) {
             logger.error(
               { err: streamError },
               `Erro durante o streaming da resposta da IA para /api/v1/${actionName}:`,
+            );
+            track(
+              "prompt_failed",
+              { command: actionName, error_code: "provider_stream_failed" },
+              auth.accountId,
             );
             controller.error(streamError);
           } finally {
@@ -173,14 +193,11 @@ export const handleStreamRequest = async (
         { err: innerError },
         `Erro na chamada de IA para /api/v1/${actionName}:`,
       );
-      const errorMessage = innerError instanceof Error
-        ? innerError.message
-        : String(innerError);
-      track("error", {
-        type: "api_error",
-        message: errorMessage,
-        route: `/api/v1/${actionName}`,
-      });
+      track(
+        "prompt_failed",
+        { command: actionName, error_code: "provider_start_failed" },
+        auth.accountId,
+      );
 
       if (ctx.response.writable) {
         ctx.response.status = 500;
@@ -194,6 +211,14 @@ export const handleStreamRequest = async (
       "[HANDLER] Erro catastrófico em handleStreamRequest:",
       outerError,
     );
+    const auth = ctx.state.auth as { accountId?: string } | undefined;
+    if (auth?.accountId) {
+      track(
+        "prompt_failed",
+        { command: actionName, error_code: "request_failed" },
+        auth.accountId,
+      );
+    }
     // Se chegarmos aqui, algo muito errado aconteceu antes de podermos enviar uma resposta.
     // Não podemos mais setar o status/body se a conexão já foi fechada.
     if (ctx.response.writable) {

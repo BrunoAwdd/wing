@@ -22,7 +22,7 @@
 | M1 | Identidade e sessão Wing | Em validação | M0 | Usuário autenticado de forma confiável |
 | M2 | Stripe, planos e cotas | Concluído | M1 | Wing pode cobrar e aplicar Free/Pro |
 | M3 | Chat com entitlement e histórico íntegro | Concluído | M1, M2 | Conversa segura e consistente |
-| M4 | Telemetria segura e confiável | Pendente | M1 | Métricas utilizáveis sem expor documentos |
+| M4 | Telemetria segura e confiável | Concluído | M1 | Métricas utilizáveis sem expor documentos |
 | M5 | Empacotamento e ambiente de produção | Pendente | M1-M4 | Add-in instalável fora do ambiente de dev |
 | M6 | Quality gate e piloto pago | Pendente | M1-M5 | Liberação controlada para clientes |
 
@@ -123,14 +123,26 @@ Gate de saída: uma conta revogada não envia novas mensagens e uma conversa mul
 
 Entregáveis:
 
-- [ ] definir catálogo tipado e allowlist de eventos;
-- [ ] definir propriedades permitidas por evento;
-- [ ] rejeitar campos livres, texto do documento e payloads acima do limite;
-- [ ] aplicar autenticação quando houver identidade e rate limit para eventos anônimos;
-- [ ] manter o backend como emissor canônico de eventos de conclusão e consumo;
-- [ ] remover duplicidade de `prompt_sent` entre frontend e backend;
-- [ ] trocar mensagens de erro livres por códigos normalizados;
-- [ ] tornar a aplicação das migrations repetível em ambientes novos.
+- [x] definir catálogo tipado e allowlist de eventos;
+- [x] definir propriedades permitidas por evento;
+- [x] rejeitar campos livres, texto do documento e payloads acima do limite;
+- [x] aplicar autenticação quando houver identidade e rate limit para eventos anônimos;
+- [x] manter o backend como emissor canônico de eventos de conclusão e consumo;
+- [x] remover duplicidade de `prompt_sent` entre frontend e backend;
+- [x] trocar mensagens de erro livres por códigos normalizados;
+- [x] tornar a aplicação das migrations repetível em ambientes novos.
+
+Concluído em 2026-07-13. O catálogo distingue eventos de cliente e servidor,
+valida exatamente nomes, propriedades, tipos, enums e limites, e impede que o
+frontend falsifique eventos canônicos. Erros usam códigos fechados, sem
+`Error.message`. A ingestão vincula sessões válidas e limita eventos anônimos
+por IP. O Postgres replica a allowlist e o limite de payload como defesa em
+profundidade; a migration saneia registros legados e foi reaplicada com
+sucesso. Testes tentam enviar nome desconhecido, texto do documento, campos
+extras, evento server-only e payload excessivo sem persistência. No smoke real,
+o evento válido incrementou a tabela e o evento com `documentText` retornou
+`400` sem alterar a contagem. A suíte encerrou com 65 testes aprovados e o build
+do add-in passou.
 
 Gate de saída: testes tentam enviar texto e propriedades desconhecidas e comprovam que nada disso é persistido.
 
