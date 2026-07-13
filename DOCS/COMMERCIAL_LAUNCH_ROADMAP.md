@@ -21,7 +21,7 @@
 | M0 | Retirada do runtime aposentado | Concluído | - | Produto sem Agents, Maestro, Extensions ou MCP |
 | M1 | Identidade e sessão Wing | Em validação | M0 | Usuário autenticado de forma confiável |
 | M2 | Stripe, planos e cotas | Concluído | M1 | Wing pode cobrar e aplicar Free/Pro |
-| M3 | Chat com entitlement e histórico íntegro | Pendente | M1, M2 | Conversa segura e consistente |
+| M3 | Chat com entitlement e histórico íntegro | Concluído | M1, M2 | Conversa segura e consistente |
 | M4 | Telemetria segura e confiável | Pendente | M1 | Métricas utilizáveis sem expor documentos |
 | M5 | Empacotamento e ambiente de produção | Pendente | M1-M4 | Add-in instalável fora do ambiente de dev |
 | M6 | Quality gate e piloto pago | Pendente | M1-M5 | Liberação controlada para clientes |
@@ -99,12 +99,23 @@ Gate de saída:
 
 Entregáveis:
 
-- [ ] exigir sessão Wing em `/chat/start` e `/chat/message`;
-- [ ] revalidar entitlement e cota a cada mensagem;
-- [ ] acumular a resposta completa do stream no histórico do modelo;
-- [ ] limitar tamanho inicial do documento, mensagens e duração da sessão;
-- [ ] contabilizar uso do chat na mesma política das demais ações;
-- [ ] cobrir expiração, revogação, multi-turn e stream interrompido.
+- [x] exigir sessão Wing em `/chat/start` e `/chat/message`;
+- [x] revalidar entitlement e cota a cada mensagem;
+- [x] acumular a resposta completa do stream no histórico do modelo;
+- [x] limitar tamanho inicial do documento, mensagens e duração da sessão;
+- [x] contabilizar uso do chat na mesma política das demais ações;
+- [x] cobrir expiração, revogação, multi-turn e stream interrompido.
+
+Concluído em 2026-07-13. Cada mensagem reserva cota atomicamente antes de
+chamar o provedor e revalida o plano e a revogação da conta. O lock da sessão é
+adquirido antes das consultas assíncronas, impedindo streams concorrentes. As
+sessões possuem duração absoluta, remoção automática, ownership por conta e
+limites de documento, mensagem e quantidade. O histórico só mantém pares
+completos de usuário/modelo; uma interrupção restaura o snapshot anterior no
+backend e remove as mensagens otimistas no frontend. Testes dedicados cobrem
+autenticação, conta revogada, concorrência, expiração automática, entitlement
+sem cota, multi-turn, interrupção e limites. A suíte completa encerrou com 57
+testes aprovados e o build do add-in passou.
 
 Gate de saída: uma conta revogada não envia novas mensagens e uma conversa multi-turn preserva pares completos de usuário/modelo.
 

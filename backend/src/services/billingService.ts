@@ -10,6 +10,7 @@ export interface Account {
   microsoft_tenant_id?: string | null;
   microsoft_object_id?: string | null;
   stripe_customer_id?: string | null;
+  revoked_at?: string | null;
   created_at: string;
 }
 
@@ -118,6 +119,16 @@ export const billingService = {
     return data;
   },
 
+  isAccountRevoked: async (accountId: string): Promise<boolean> => {
+    const { data, error } = await supabase
+      .from("accounts")
+      .select("revoked_at")
+      .eq("id", accountId)
+      .single();
+    if (error) throw error;
+    return typeof data.revoked_at === "string";
+  },
+
   // --- Subscriptions ---
   upsertSubscription: async (subscription: Partial<Subscription>) => {
     // Check if exists by external_subscription_id
@@ -193,12 +204,15 @@ export const billingService = {
       `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}`,
     );
 
-    const { data, error } = await supabase.rpc("increment_usage_and_check_limit", {
-      p_account_id: accountId,
-      p_yyyymm: yyyymm,
-      p_tokens: tokens,
-      p_limit: limit,
-    });
+    const { data, error } = await supabase.rpc(
+      "increment_usage_and_check_limit",
+      {
+        p_account_id: accountId,
+        p_yyyymm: yyyymm,
+        p_tokens: tokens,
+        p_limit: limit,
+      },
+    );
     if (error) throw error;
 
     const row = (Array.isArray(data) ? data[0] : data) as {
@@ -255,7 +269,10 @@ export const billingService = {
   // (mesmo event.id) bate no unique_violation e é descartado como duplicado,
   // e o evento nunca é reprocessado.
   removeWebhookEvent: async (eventId: string): Promise<void> => {
-    const { error } = await supabase.from("webhook_events").delete().eq("id", eventId);
+    const { error } = await supabase.from("webhook_events").delete().eq(
+      "id",
+      eventId,
+    );
     if (error) throw error;
   },
 
