@@ -14,6 +14,8 @@ import { ArrowLeft24Regular, Send24Regular } from "@fluentui/react-icons";
 import { useDocumentChat, ChatMessage } from "../hooks/useDocumentChat";
 import ReactMarkdown from "react-markdown";
 
+const MAX_MESSAGE_CHARS = 4000;
+
 const useStyles = makeStyles({
   root: {
     display: "flex",
@@ -184,6 +186,7 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
             onChange={(e) => setCurrentMessage(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             disabled={isLoading}
+            maxLength={MAX_MESSAGE_CHARS}
           />
           <Button
             icon={<Send24Regular />}

@@ -83,12 +83,13 @@ export const useDocumentChat = ({ isOnline, sessionToken }: UseDocumentChatProps
         return;
       }
 
-      setMessages((prev) => [...prev, { author: "user", content: message }]);
+      const optimisticMessages: ChatMessage[] = [
+        { author: "user", content: message },
+        { author: "model", content: "" },
+      ];
+      setMessages((prev) => [...prev, ...optimisticMessages]);
       setIsLoading(true);
       setError(null);
-
-      // Adiciona um placeholder para a resposta do modelo
-      setMessages((prev) => [...prev, { author: "model", content: "" }]);
 
       try {
         const response = await fetch(`${BACKEND_URL}/api/v1/chat/message`, {
@@ -120,6 +121,10 @@ export const useDocumentChat = ({ isOnline, sessionToken }: UseDocumentChatProps
           });
         }
       } catch (e: any) {
+        // O backend também restaura o snapshot anterior em falhas de stream.
+        // Remove a pergunta e a resposta otimistas para manter as duas visões
+        // do histórico consistentes.
+        setMessages((prev) => prev.slice(0, -optimisticMessages.length));
         setError(e.message || "Ocorreu um erro desconhecido.");
         console.error(e);
       } finally {
