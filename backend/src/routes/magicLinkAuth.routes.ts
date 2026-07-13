@@ -10,6 +10,7 @@ import {
   refreshTokenService,
 } from "../services/refreshTokenService.ts";
 import { track } from "../services/telemetry.ts";
+import type { TelemetryEventName } from "../services/telemetryCatalog.ts";
 import { requireWingSession } from "../middlewares/authMiddleware.ts";
 
 export interface MagicLinkRouteDependencies {
@@ -25,7 +26,7 @@ export interface MagicLinkRouteDependencies {
   consumeRefreshToken: typeof refreshTokenService.consume;
   revokeRefreshToken: typeof refreshTokenService.revoke;
   trackEvent: (
-    eventName: string,
+    eventName: TelemetryEventName,
     properties?: Record<string, unknown>,
     accountId?: string,
   ) => void;
