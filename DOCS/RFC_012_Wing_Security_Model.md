@@ -1,5 +1,6 @@
 # RFC 012 — Wing Security Model (Modelo de Segurança Completo)
-**Status:** Draft 1.0  
+**Status:** Partially superseded by RFC 014 and RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** WASM, Wing Memory Engine, Agents Hub, Maestro, Wing Local Service, Marketplace  
 **Data:** 29/11/2025  

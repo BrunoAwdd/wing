@@ -3,6 +3,7 @@ import logger from "./logger.ts";
 import { billingService } from "./billingService.ts";
 import { generateTextStream } from "./aiService.ts";
 import type { PromptBuilder } from "../prompts.ts";
+import { getWingAuth } from "../middlewares/authMiddleware.ts";
 
 // Tipos que estavam em api.routes.ts
 type Paragraph = { id: string; text: string };
@@ -20,38 +21,16 @@ async function collectStream(stream: AsyncGenerator<string>): Promise<string> {
 export const handleStreamRequest = async (
   ctx: any, // TODO: Usar um tipo de contexto mais específico do Oak
   promptBuilder: PromptBuilder,
-  actionName: string
+  actionName: string,
 ) => {
   console.log("[HANDLER] 1. Entrou em handleStreamRequest");
   try {
-    const {
-      text: paragraphs,
-      licenseToken,
-      options,
-    } = (await ctx.request.body.json()) as {
+    const { text: paragraphs, options } = (await ctx.request.body.json()) as {
       text: Paragraph[];
-      licenseToken: string;
       options: any;
     };
     console.log("[HANDLER] 2. Body da requisição parseado");
-
-    if (!licenseToken) {
-      console.log("[HANDLER] Erro: Token de licença não fornecido.");
-      ctx.response.status = 401;
-      ctx.response.body = { error: "Token de licença não fornecido." };
-      return;
-    }
-
-    // NEW: Use billingService for validation
-    const validation = await billingService.validateLicenseKey(licenseToken);
-    console.log("[HANDLER] 3. Licença validada:", validation);
-
-    if (!validation.valid) {
-      console.log("[HANDLER] Erro: Licença inválida.");
-      ctx.response.status = 403;
-      ctx.response.body = { error: "Licença inválida ou expirada." };
-      return;
-    }
+    const auth = getWingAuth(ctx);
 
     if (!paragraphs || paragraphs.length === 0) {
       console.log("[HANDLER] Erro: Parágrafos não fornecidos.");
@@ -63,31 +42,45 @@ export const handleStreamRequest = async (
     }
     console.log("[HANDLER] 4. Input validado (parágrafos existem)");
 
+    const entitlement = await billingService.getEntitlement(auth.accountId);
+
     // Calculate tokens (approximation for now: 1 word ~ 1.3 tokens, or just char count / 4)
     const totalChars = paragraphs.map((p) => p.text).join("\n").length;
     const estimatedTokens = Math.ceil(totalChars / 4);
 
-    // NEW: Track usage
-    if (validation.accountId) {
-      // Fire and forget usage tracking to not block response
-      billingService
-        .incrementUsage(validation.accountId, estimatedTokens)
-        .catch((err) => {
-          console.error("[HANDLER] Failed to track usage:", err);
-        });
+    // RFC 015 §11: cota Free é aplicada ANTES de chamar o provedor de IA.
+    // Incremento atômico e condicional (função SQL) — evita condição de
+    // corrida sob chamadas concorrentes da mesma conta, e não conta a
+    // tentativa que estoura o limite (senão requests_count infla a cada
+    // retry do usuário, mesmo sem nunca ter chamado a IA).
+    const freeMonthlyLimit = Number(Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20");
+    const usageLimit = entitlement.plan === "free" ? freeMonthlyLimit : null;
+    const { allowed } = await billingService.incrementUsage(auth.accountId, estimatedTokens, usageLimit);
+
+    if (!allowed) {
+      console.log("[HANDLER] Cota Free excedida.");
+      ctx.response.status = 402;
+      ctx.response.body = {
+        error: "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
+        code: "quota_exceeded",
+      };
+      return;
     }
 
-    track("prompt_sent", {
-      command: actionName,
-      text_length: totalChars,
-      userId: validation.accountId || "anonymous",
-      entitlement: validation.plan || "free",
-    });
+    track(
+      "prompt_sent",
+      {
+        command: actionName,
+        text_length: totalChars,
+        entitlement: entitlement.plan,
+      },
+      auth.accountId,
+    );
     console.log("[HANDLER] 5. Evento de telemetria enviado");
 
     const structuredPrompt = promptBuilder(
       JSON.stringify(paragraphs, null, 2),
-      options
+      options,
     );
     console.log("[HANDLER] 6. Prompt estruturado criado");
 
@@ -95,10 +88,9 @@ export const handleStreamRequest = async (
       console.log("[HANDLER] 7. Entrando no bloco try para chamada de IA");
       // Pass entitlement/plan to generateTextStream if needed for model selection
       const aiStream = generateTextStream(structuredPrompt, {
-        entitlement:
-          validation.plan === "pro" || validation.plan === "team"
-            ? "Paid"
-            : "Free",
+        entitlement: entitlement.plan === "pro" || entitlement.plan === "team"
+          ? "Paid"
+          : "Free",
         model: options?.model,
       });
 
@@ -161,12 +153,12 @@ export const handleStreamRequest = async (
             }
 
             console.log(
-              "[HANDLER] 8. Stream da IA finalizado e enviado para o cliente."
+              "[HANDLER] 8. Stream da IA finalizado e enviado para o cliente.",
             );
           } catch (streamError) {
             logger.error(
               { err: streamError },
-              `Erro durante o streaming da resposta da IA para /api/v1/${actionName}:`
+              `Erro durante o streaming da resposta da IA para /api/v1/${actionName}:`,
             );
             controller.error(streamError);
           } finally {
@@ -179,10 +171,11 @@ export const handleStreamRequest = async (
     } catch (innerError) {
       logger.error(
         { err: innerError },
-        `Erro na chamada de IA para /api/v1/${actionName}:`
+        `Erro na chamada de IA para /api/v1/${actionName}:`,
       );
-      const errorMessage =
-        innerError instanceof Error ? innerError.message : String(innerError);
+      const errorMessage = innerError instanceof Error
+        ? innerError.message
+        : String(innerError);
       track("error", {
         type: "api_error",
         message: errorMessage,
@@ -199,7 +192,7 @@ export const handleStreamRequest = async (
   } catch (outerError) {
     console.error(
       "[HANDLER] Erro catastrófico em handleStreamRequest:",
-      outerError
+      outerError,
     );
     // Se chegarmos aqui, algo muito errado aconteceu antes de podermos enviar uma resposta.
     // Não podemos mais setar o status/body se a conexão já foi fechada.

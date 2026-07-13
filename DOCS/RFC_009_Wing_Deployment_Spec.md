@@ -1,5 +1,6 @@
 # RFC 009 — Wing Deployment & Distribution Specification  
-**Status:** Draft 1.0  
+**Status:** Partially superseded by RFC 014 and RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** Office Add-in, CDN, Manifest XML, Node Backend, WASM, Segurança  
 **Data:** 29/11/2025  

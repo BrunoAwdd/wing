@@ -1,10 +1,22 @@
 import * as React from "react";
-import { makeStyles, Input, Button, shorthands } from "@fluentui/react-components";
+import {
+  makeStyles,
+  tokens,
+  Input,
+  Button,
+  shorthands,
+  Menu,
+  MenuTrigger,
+  MenuPopover,
+  MenuList,
+  MenuItem,
+} from "@fluentui/react-components";
 import {
   Send24Regular,
   Settings24Regular,
   History24Regular,
   ArrowSyncCheckmark24Regular,
+  ChevronDown16Regular,
 } from "@fluentui/react-icons";
 
 const useStyles = makeStyles({
@@ -14,10 +26,21 @@ const useStyles = makeStyles({
     ...shorthands.gap("8px"),
     ...shorthands.padding("0px", "16px", "16px", "16px"), // Adicionado padding para separar da parte de baixo
   },
+  // RFC 014 §4: as quatro ações principais do produto — Revisar, Traduzir,
+  // Resumir, Fale com o documento. Ficam em destaque (appearance="primary").
   presetContainer: {
     display: "flex",
     flexWrap: "wrap",
     ...shorthands.gap("8px"),
+  },
+  // Recursos de suporte (memória, e features incubadas quando ligadas) —
+  // visualmente secundários, não competem com as 4 ações principais.
+  supportContainer: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    ...shorthands.gap("8px"),
+    fontSize: tokens.fontSizeBase200,
   },
   commandConsole: {
     display: "flex",
@@ -34,7 +57,7 @@ interface CommandConsoleProps {
   onCommandSend: () => void;
   onPresetSelect: (presetCommand: string) => void;
   onShowSettings: () => void;
-  onStartAnalysis: () => void; // Nova prop para análise de documento
+  onStartAnalysis: () => void; // "Fale com o documento" (RFC 014 §4)
   onShowHistory: () => void;
   onShowLastUpdates: () => void;
   onSyncMemory: () => void;
@@ -62,35 +85,46 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
   return (
     <div className={styles.wrapper}>
       <div className={styles.presetContainer}>
-        <Button appearance="outline" onClick={() => onPresetSelect("fix")}>
-          Corrigir
-        </Button>
-        <Button appearance="outline" onClick={() => onPresetSelect("summarize")}>
-          Resumir
-        </Button>
-        <Button appearance="outline" onClick={() => onPresetSelect("translate")}>
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <Button appearance="primary" icon={<ChevronDown16Regular />} iconPosition="after">
+              Revisar
+            </Button>
+          </MenuTrigger>
+          <MenuPopover>
+            <MenuList>
+              <MenuItem onClick={() => onPresetSelect("fix")}>Corrigir</MenuItem>
+              <MenuItem onClick={() => onPresetSelect("rewrite")}>Reescrever</MenuItem>
+            </MenuList>
+          </MenuPopover>
+        </Menu>
+        <Button appearance="primary" onClick={() => onPresetSelect("translate")}>
           Traduzir
         </Button>
-        <Button appearance="outline" onClick={() => onPresetSelect("rewrite")}>
-          Reescrever
+        <Button appearance="primary" onClick={() => onPresetSelect("summarize")}>
+          Resumir
         </Button>
         <Button appearance="primary" onClick={onStartAnalysis}>
-          Analisar Documento
+          Fale com o documento
+        </Button>
+      </div>
+
+      <div className={styles.supportContainer}>
+        <Button appearance="subtle" icon={<ArrowSyncCheckmark24Regular />} onClick={onSyncMemory}>
+          Atualizar memória do documento
         </Button>
         {onShowLegalAnalysis && (
-          <Button appearance="primary" onClick={onShowLegalAnalysis}>
+          <Button appearance="outline" onClick={onShowLegalAnalysis}>
             Análise Jurídica
           </Button>
         )}
         {onShowDocumentDesign && (
-          <Button appearance="primary" onClick={onShowDocumentDesign}>
+          <Button appearance="outline" onClick={onShowDocumentDesign}>
             Formatar Documento
           </Button>
         )}
-        <Button appearance="subtle" icon={<ArrowSyncCheckmark24Regular />} onClick={onSyncMemory}>
-          Sincronizar Memória
-        </Button>
       </div>
+
       <div className={styles.commandConsole}>
         <Input
           className={styles.input}

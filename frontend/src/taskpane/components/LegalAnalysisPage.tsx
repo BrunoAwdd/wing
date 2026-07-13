@@ -179,7 +179,7 @@ interface LegalAnalysisPageProps {
   onBack: () => void;
   insertHtmlAtCursor: (html: string) => Promise<void>;
   isOnline: boolean;
-  licenseToken: string | null;
+  sessionToken: string | null;
   highlightClauses: (
     clauses: { originalText: string; riskLevel: RiskLevel; summary: string }[]
   ) => Promise<{ formatted: number; notFound: number }>;
@@ -191,13 +191,13 @@ const LegalAnalysisPage: React.FC<LegalAnalysisPageProps> = ({
   onBack,
   insertHtmlAtCursor,
   isOnline,
-  licenseToken,
+  sessionToken,
   highlightClauses,
   beautifyTables,
   insertPictureAtCursor,
 }) => {
   const styles = useStyles();
-  const { result, isLoading, error, analyze } = useLegalAnalysis({ isOnline, licenseToken });
+  const { result, isLoading, error, analyze } = useLegalAnalysis({ isOnline, sessionToken });
   const [actionStatus, setActionStatus] = React.useState<string | null>(null);
 
   const handleInsert = () => {

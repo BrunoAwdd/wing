@@ -5,28 +5,20 @@ import {
   DocumentParagraph,
 } from "../services/documentDesignService.ts";
 import { track } from "../services/telemetry.ts";
+import {
+  getWingAuth,
+  requireWingSession,
+} from "../middlewares/authMiddleware.ts";
 
 const router = new Router();
+router.use(requireWingSession);
 
 router.post("/analyze", async (ctx) => {
-  const { documentText, paragraphs = [], licenseToken } = (await ctx.request.body.json()) as {
+  const { documentText, paragraphs = [] } = (await ctx.request.body.json()) as {
     documentText: string;
     paragraphs?: DocumentParagraph[];
-    licenseToken: string;
   };
-
-  if (!licenseToken) {
-    ctx.response.status = 401;
-    ctx.response.body = { error: "Token de licença não fornecido." };
-    return;
-  }
-
-  const validation = await billingService.validateLicenseKey(licenseToken);
-  if (!validation.valid) {
-    ctx.response.status = 403;
-    ctx.response.body = { error: "Licença inválida ou expirada." };
-    return;
-  }
+  const auth = getWingAuth(ctx);
 
   if (!documentText || !documentText.trim()) {
     ctx.response.status = 400;
@@ -34,30 +26,37 @@ router.post("/analyze", async (ctx) => {
     return;
   }
 
+  const entitlement = await billingService.getEntitlement(auth.accountId);
   const estimatedTokens = Math.ceil(documentText.length / 4);
-  if (validation.accountId) {
-    billingService
-      .incrementUsage(validation.accountId, estimatedTokens)
-      .catch((err) => {
-        console.error("[DesignRoutes] Failed to track usage:", err);
-      });
-  }
+  billingService.incrementUsage(auth.accountId, estimatedTokens, null).catch(
+    (err) => {
+      console.error("[DesignRoutes] Failed to track usage:", err);
+    },
+  );
 
-  track("prompt_sent", {
-    command: "design_analyze",
-    text_length: documentText.length,
-    userId: validation.accountId || "anonymous",
-    entitlement: validation.plan || "free",
-  });
+  track(
+    "prompt_sent",
+    {
+      command: "design_analyze",
+      text_length: documentText.length,
+      entitlement: entitlement.plan,
+    },
+    auth.accountId,
+  );
 
   try {
-    const result = await documentDesignService.analyze(documentText, paragraphs);
+    const result = await documentDesignService.analyze(
+      documentText,
+      paragraphs,
+    );
     ctx.response.status = 200;
     ctx.response.body = result;
   } catch (error) {
     console.error("[DesignRoutes] Analysis failed:", error);
     ctx.response.status = 500;
-    ctx.response.body = { error: "Falha ao analisar a estrutura do documento." };
+    ctx.response.body = {
+      error: "Falha ao analisar a estrutura do documento.",
+    };
   }
 });
 

@@ -1,5 +1,6 @@
 # RFC 004 — Personas & Agent Schema (Especificação Oficial do Wing Agents Hub)
-**Status:** Draft 1.0  
+**Status:** Superseded by RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** Wing Agents Hub, Gemini Backend, Maestro, Client Engine  
 **Data:** 29/11/2025  

@@ -112,11 +112,6 @@ module.exports = async (env, options) => {
         template: "./src/commands/commands.html",
         chunks: ["polyfill", "commands"],
       }),
-      new HtmlWebpackPlugin({
-        filename: "auth-fallback.html",
-        template: "./src/auth/auth-fallback.html",
-        chunks: ["polyfill"],
-      }),
       new webpack.ProvidePlugin({
         Promise: ["es6-promise", "Promise"],
       }),
@@ -132,7 +127,7 @@ module.exports = async (env, options) => {
             proxy: [
               {
                 context: "/api",
-                target: process.env.DEV_API_TARGET || "http://localhost:3003", // backend dev (plain HTTP in dev)
+                target: process.env.DEV_API_TARGET || "http://127.0.0.1:3005", // backend dev (plain HTTP in dev)
                 secure: false, // aceita certificado auto‑assinado
                 changeOrigin: true,
               },

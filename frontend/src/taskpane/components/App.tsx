@@ -7,6 +7,8 @@ import {
   ToastTitle,
   useToastController,
   Spinner,
+  Button,
+  Text,
 } from "@fluentui/react-components";
 import StatusBar, { LogEntry } from "./StatusBar";
 import DiffViewer from "./DiffViewer";
@@ -15,6 +17,7 @@ import CommandConsole from "./CommandConsole";
 import Rating from "./Rating";
 import SettingsPage from "./SettingsPage";
 import DocumentAnalysisPage from "./DocumentAnalysisPage";
+import MagicLinkLoginPage from "./MagicLinkLoginPage";
 import HistoryPage from "./HistoryPage";
 import LegalAnalysisPage from "./LegalAnalysisPage";
 import DocumentDesignPage from "./DocumentDesignPage";
@@ -32,6 +35,7 @@ import { documentObserver } from "../../services/documentObserver";
 // explícita nos dois lados (frontend .env + backend .env) e novo deploy.
 const LEGAL_ANALYSIS_ENABLED = process.env.WING_FEATURE_LEGAL_ANALYSIS === "true";
 const DOCUMENT_DESIGN_ENABLED = process.env.WING_FEATURE_DOCUMENT_DESIGN === "true";
+const MICROSOFT_SSO_ENABLED = process.env.WING_FEATURE_MICROSOFT_SSO === "true";
 
 const useStyles = makeStyles({
   root: {
@@ -95,17 +99,30 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setLogs((prevLogs) => [...prevLogs, { message, type, time }]);
   }, []);
 
-  const showFluentToast = (message: string, type: "info" | "success" | "error") => {
-    dispatchToast(
-      <Toast>
-        <ToastTitle>{message}</ToastTitle>
-      </Toast>,
-      { intent: type, timeout: 3000, toastId }
-    );
-  };
+  const showFluentToast = useCallback(
+    (message: string, type: "info" | "success" | "error") => {
+      dispatchToast(
+        <Toast>
+          <ToastTitle>{message}</ToastTitle>
+        </Toast>,
+        { intent: type, timeout: 3000, toastId }
+      );
+    },
+    [dispatchToast, toastId]
+  );
 
   // Hooks customizados
-  const { licenseToken, isOnline } = useAppSetup({ addLog, showFluentToast });
+  const {
+    sessionToken,
+    sessionUser,
+    authStatus,
+    authError,
+    retryAuth,
+    requestCode,
+    verifyCode,
+    signOut,
+    isOnline,
+  } = useAppSetup({ addLog, showFluentToast });
   const {
     originalText,
     acceptSingleSuggestion,
@@ -131,7 +148,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     lastCommand,
     isLoading,
   } = useAIApi({
-    licenseToken,
+    sessionToken,
     isOnline,
     originalText,
     tone,
@@ -149,7 +166,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   const handleAcceptAll = async () => {
     if (suggestedText.length === 0) return;
-    track("suggestion_accepted_all", { command: lastCommand });
+    track("suggestion_accepted_all", { command: lastCommand }, sessionToken);
 
     const suggestionsToApply = suggestedText
       .map((suggestion) => {
@@ -171,7 +188,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
 
   const handleRejectAll = () => {
     if (suggestedText.length === 0) return;
-    track("suggestion_rejected_all", { command: lastCommand });
+    track("suggestion_rejected_all", { command: lastCommand }, sessionToken);
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
     setShowRating(true);
@@ -184,18 +201,18 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     const originalIndex = originalText.findIndex((p) => p.id === id);
     if (originalIndex === -1) return;
 
-    track("suggestion_accepted_single", { command: lastCommand });
+    track("suggestion_accepted_single", { command: lastCommand }, sessionToken);
     await acceptSingleSuggestion(originalIndex, suggestion.text);
     setSuggestedText((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleRejectSingle = (id: string) => {
-    track("suggestion_rejected_single", { command: lastCommand });
+    track("suggestion_rejected_single", { command: lastCommand }, sessionToken);
     setSuggestedText((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleRate = (rating: number) => {
-    track("suggestion_rated", { rating, command: lastCommand });
+    track("suggestion_rated", { rating, command: lastCommand }, sessionToken);
     addLog(`Avaliação (${rating}) enviada.`, "info");
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
@@ -208,11 +225,37 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   };
 
   // Renderização
-  if (!licenseToken) {
+  if (
+    !MICROSOFT_SSO_ENABLED &&
+    (authStatus === "needs_login" || authStatus === "loading")
+  ) {
+    return (
+      <MagicLinkLoginPage
+        isLoading={authStatus === "loading"}
+        authError={authError}
+        requestCode={requestCode}
+        verifyCode={verifyCode}
+      />
+    );
+  }
+
+  if (authStatus === "loading") {
     return (
       <div className={styles.loading}>
         <Spinner />
-        <p>Obtendo token de licença...</p>
+        <Text>Iniciando sessão segura...</Text>
+      </div>
+    );
+  }
+
+  if (!sessionToken || !sessionUser) {
+    return (
+      <div className={styles.loading}>
+        <Text weight="semibold">Não foi possível entrar no Wing.</Text>
+        <Text>{authError || "Sua sessão foi encerrada."}</Text>
+        <Button appearance="primary" onClick={() => void retryAuth()}>
+          Entrar novamente
+        </Button>
       </div>
     );
   }
@@ -225,6 +268,9 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         onToneChange={setTone}
         onLanguageChange={setLanguage}
         onBack={() => setView("main")}
+        user={sessionUser}
+        onSignOut={() => void signOut()}
+        sessionToken={sessionToken}
       />
     );
   }
@@ -234,6 +280,8 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
       <DocumentAnalysisPage
         onBack={() => setView("main")}
         insertHtmlAtCursor={insertHtmlAtCursor}
+        isOnline={isOnline}
+        sessionToken={sessionToken}
       />
     );
   }
@@ -258,7 +306,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         onBack={() => setView("main")}
         insertHtmlAtCursor={insertHtmlAtCursor}
         isOnline={isOnline}
-        licenseToken={licenseToken}
+        sessionToken={sessionToken}
         highlightClauses={highlightClauses}
         beautifyTables={beautifyTables}
         insertPictureAtCursor={insertPictureAtCursor}
@@ -271,7 +319,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
       <DocumentDesignPage
         onBack={() => setView("main")}
         isOnline={isOnline}
-        licenseToken={licenseToken}
+        sessionToken={sessionToken}
         applySectionStyles={applySectionStyles}
         applyDocumentTheme={applyDocumentTheme}
         syncDocumentTheme={syncDocumentTheme}
@@ -324,6 +372,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onSyncMemory={async () => {
             addLog("Sincronizando memória...", "info");
             await documentObserver.syncDocument();
+            track("memory_sync_completed", undefined, sessionToken);
             addLog("Memória sincronizada.", "success");
           }}
         />

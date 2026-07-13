@@ -1,45 +1,121 @@
 import { supabase } from "./supabaseClient.ts";
-import { uuidv4 } from "../deps.ts";
+import { track } from "./telemetry.ts";
+import { stripeService, type StripeSubscription } from "./stripeService.ts";
+import type { MicrosoftIdentity } from "./microsoftIdentityService.ts";
 
 export interface Account {
   id: string;
   email: string;
-  stripe_customer_id?: string;
+  display_name?: string | null;
+  microsoft_tenant_id?: string | null;
+  microsoft_object_id?: string | null;
+  stripe_customer_id?: string | null;
   created_at: string;
 }
 
+// União completa dos status que a Stripe pode enviar (RFC 015 §8) — só
+// "trialing"/"active" contam como Pro em getEntitlement, o resto é Free.
 export interface Subscription {
   id: string;
   account_id: string;
   external_subscription_id: string;
   provider: "stripe" | "microsoft";
   plan: "free" | "pro" | "team" | "enterprise";
-  status: "trialing" | "active" | "past_due" | "canceled" | "incomplete";
+  status:
+    | "trialing"
+    | "active"
+    | "past_due"
+    | "canceled"
+    | "incomplete"
+    | "incomplete_expired"
+    | "unpaid"
+    | "paused";
   current_period_end: string;
 }
 
 export const billingService = {
   // --- Accounts ---
-  getOrCreateAccount: async (
-    email: string,
-    stripeCustomerId?: string
+  getOrCreateMicrosoftAccount: async (
+    identity: MicrosoftIdentity,
   ): Promise<Account> => {
-    const { data: existing } = await supabase
+    const email = identity.email.trim().toLowerCase();
+    const { data: existing, error: identityLookupError } = await supabase
       .from("accounts")
       .select("*")
-      .eq("email", email)
-      .single();
+      .eq("microsoft_tenant_id", identity.tenantId)
+      .eq("microsoft_object_id", identity.objectId)
+      .maybeSingle();
 
-    if (existing) return existing;
+    if (identityLookupError) throw identityLookupError;
+
+    if (existing) {
+      const updates: Record<string, string> = {};
+      if (existing.email !== email) updates.email = email;
+      if (
+        identity.displayName && existing.display_name !== identity.displayName
+      ) {
+        updates.display_name = identity.displayName;
+      }
+
+      if (Object.keys(updates).length === 0) return existing;
+
+      const { data: updated, error } = await supabase
+        .from("accounts")
+        .update(updates)
+        .eq("id", existing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      return updated;
+    }
 
     const { data: newAccount, error } = await supabase
       .from("accounts")
-      .insert({ email, stripe_customer_id: stripeCustomerId })
+      .insert({
+        email,
+        display_name: identity.displayName || null,
+        microsoft_tenant_id: identity.tenantId,
+        microsoft_object_id: identity.objectId,
+      })
       .select()
       .single();
 
     if (error) throw error;
     return newAccount;
+  },
+
+  // Conta de login por e-mail (magic link / Supabase Auth) — não toca nos
+  // campos microsoft_tenant_id/microsoft_object_id, que continuam nulos.
+  getOrCreateAccountByEmail: async (rawEmail: string): Promise<Account> => {
+    const email = rawEmail.trim().toLowerCase();
+    const { data: existing, error: lookupError } = await supabase
+      .from("accounts")
+      .select("*")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (lookupError) throw lookupError;
+    if (existing) return existing;
+
+    const { data: newAccount, error } = await supabase
+      .from("accounts")
+      .insert({ email })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return newAccount;
+  },
+
+  getAccount: async (accountId: string): Promise<Account> => {
+    const { data, error } = await supabase
+      .from("accounts")
+      .select("*")
+      .eq("id", accountId)
+      .single();
+
+    if (error) throw error;
+    return data;
   },
 
   // --- Subscriptions ---
@@ -77,75 +153,125 @@ export const billingService = {
     return data;
   },
 
-  // --- Usage ---
-  incrementUsage: async (accountId: string, tokens: number) => {
-    const now = new Date();
-    const yyyymm = parseInt(
-      `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}`
-    );
-
-    // Upsert usage record
-    // Note: Supabase/PostgREST doesn't have a clean atomic increment without a function or raw SQL usually.
-    // But we can try an upsert with on_conflict if we had a unique constraint (we do).
-    // However, incrementing requires reading first or using a stored procedure.
-    // For MVP Deno, let's read-then-update (optimistic locking not strictly needed for MVP but good practice).
-
-    const { data: existing } = await supabase
-      .from("usage_monthly")
-      .select("*")
+  getEntitlement: async (
+    accountId: string,
+  ): Promise<{ plan: Subscription["plan"] | "free"; status: string }> => {
+    const { data, error } = await supabase
+      .from("subscriptions")
+      .select("plan, status, current_period_end")
       .eq("account_id", accountId)
-      .eq("yyyymm", yyyymm)
-      .single();
+      .maybeSingle();
 
-    if (existing) {
-      await supabase
-        .from("usage_monthly")
-        .update({
-          requests_count: existing.requests_count + 1,
-          tokens_used: existing.tokens_used + tokens,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existing.id);
-    } else {
-      await supabase.from("usage_monthly").insert({
-        account_id: accountId,
-        yyyymm,
-        requests_count: 1,
-        tokens_used: tokens,
-      });
+    if (error) throw error;
+    if (!data) return { plan: "free", status: "inactive" };
+
+    const paidStatus = data.status === "active" || data.status === "trialing";
+    const periodIsCurrent = typeof data.current_period_end === "string" &&
+      new Date(data.current_period_end).getTime() > Date.now();
+
+    if (!paidStatus || !periodIsCurrent) {
+      return { plan: "free", status: data.status };
     }
+
+    return { plan: data.plan, status: data.status };
   },
 
-  // --- Licenses ---
-  validateLicenseKey: async (
-    key: string
-  ): Promise<{ valid: boolean; accountId?: string; plan?: string }> => {
-    // DEV BYPASS: In development, always return valid PRO license
-    if (Deno.env.get("NODE_ENV") !== "production") {
-      console.log("[Billing] Dev mode detected. Bypassing license check.");
-      return { valid: true, accountId: "dev-user", plan: "pro" };
+  // --- Usage ---
+  // Incremento atômico via função SQL (RPC) — evita a condição de corrida de
+  // um read-then-write em JS quando duas chamadas concorrem no mesmo mês.
+  // `limit` é null pra planos pagos (sem teto); quando informado, a função só
+  // incrementa se ainda houver cota — a tentativa que estouraria o limite não
+  // é contada, senão retries/re-tentativas do usuário inflam requests_count
+  // indefinidamente mesmo sem nunca terem chamado a IA.
+  incrementUsage: async (
+    accountId: string,
+    tokens: number,
+    limit: number | null,
+  ): Promise<{ requestsCount: number; allowed: boolean }> => {
+    const now = new Date();
+    const yyyymm = parseInt(
+      `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}`,
+    );
+
+    const { data, error } = await supabase.rpc("increment_usage_and_check_limit", {
+      p_account_id: accountId,
+      p_yyyymm: yyyymm,
+      p_tokens: tokens,
+      p_limit: limit,
+    });
+    if (error) throw error;
+
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      requests_count: number;
+      allowed: boolean;
+    };
+
+    if (row.allowed) {
+      // RFC 014 §8: "consumo de cota Free" — só contagens, sem texto do documento.
+      track(
+        "usage_incremented",
+        { yyyymm, requests_count: row.requests_count, tokens_used: tokens },
+        accountId,
+      );
     }
 
-    const { data: license, error } = await supabase
-      .from("licences")
-      .select("*, accounts(id, email), subscriptions(plan, status)")
-      .eq("key", key)
-      .single();
+    return { requestsCount: row.requests_count, allowed: row.allowed };
+  },
 
-    if (error || !license) return { valid: false };
-    if (license.revoked) return { valid: false };
-    if (license.expires_at && new Date(license.expires_at) < new Date())
-      return { valid: false };
+  // --- Stripe ---
+  getOrCreateStripeCustomer: async (account: Account): Promise<string> => {
+    if (account.stripe_customer_id) return account.stripe_customer_id;
 
-    // Check subscription status if linked
-    // Note: This join syntax depends on Supabase setup.
-    // If simple join not working, we might need two queries.
-    // For now assuming we trust the license or check subscription separately.
+    const customerId = await stripeService.createCustomer(account.email);
+    const { error } = await supabase
+      .from("accounts")
+      .update({ stripe_customer_id: customerId })
+      .eq("id", account.id);
+    if (error) throw error;
 
-    return {
-      valid: true,
-      accountId: license.account_id,
-      plan: license.plan || "free",
-    };
+    return customerId;
+  },
+
+  // Idempotência de webhook: a linha só existe se o evento ainda não foi
+  // processado (id = Stripe event.id, PK). Insert falhando por conflito de
+  // chave única == evento duplicado, sem precisar de "select antes".
+  recordWebhookEventIfNew: async (event: {
+    id: string;
+    type: string;
+    payload: unknown;
+  }): Promise<boolean> => {
+    const { error } = await supabase.from("webhook_events").insert({
+      id: event.id,
+      type: event.type,
+      payload: event.payload,
+    });
+    if (!error) return true;
+    if (error.code === "23505") return false;
+    throw error;
+  },
+
+  // Compensação: se o processamento do evento falhar depois do registro de
+  // idempotência acima, a linha precisa sumir — senão o retry da Stripe
+  // (mesmo event.id) bate no unique_violation e é descartado como duplicado,
+  // e o evento nunca é reprocessado.
+  removeWebhookEvent: async (eventId: string): Promise<void> => {
+    const { error } = await supabase.from("webhook_events").delete().eq("id", eventId);
+    if (error) throw error;
+  },
+
+  syncSubscriptionFromStripe: async (
+    stripeSubscription: StripeSubscription,
+    accountId: string,
+  ): Promise<void> => {
+    await billingService.upsertSubscription({
+      account_id: accountId,
+      external_subscription_id: stripeSubscription.id,
+      provider: "stripe",
+      plan: "pro",
+      status: stripeSubscription.status as Subscription["status"],
+      current_period_end: new Date(
+        stripeSubscription.current_period_end * 1000,
+      ).toISOString(),
+    });
   },
 };

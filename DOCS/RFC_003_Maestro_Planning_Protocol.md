@@ -1,5 +1,6 @@
 # RFC 003 — Maestro Planning Protocol (Protocolo de Orquestração Cognitiva)
-**Status:** Draft 1.0  
+**Status:** Superseded by RFC 016
+
 **Autor:** Bruno Oliveira  
 **Componentes:** Maestro Planner, Agents Hub, Client Engine  
 **Data:** 29/11/2025  

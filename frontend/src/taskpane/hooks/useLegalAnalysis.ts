@@ -38,7 +38,7 @@ export interface LegalAnalysisResult {
 
 interface UseLegalAnalysisProps {
   isOnline: boolean;
-  licenseToken: string | null;
+  sessionToken: string | null;
 }
 
 const getDocumentAsText = async (): Promise<string> => {
@@ -50,14 +50,14 @@ const getDocumentAsText = async (): Promise<string> => {
   });
 };
 
-export const useLegalAnalysis = ({ isOnline, licenseToken }: UseLegalAnalysisProps) => {
+export const useLegalAnalysis = ({ isOnline, sessionToken }: UseLegalAnalysisProps) => {
   const [result, setResult] = useState<LegalAnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const analyze = useCallback(async () => {
-    if (!isOnline || !licenseToken || licenseToken === "ERROR_FETCHING_TOKEN") {
-      setError("Ação bloqueada. Verifique sua conexão e o status da licença.");
+    if (!isOnline || !sessionToken) {
+      setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
       return;
     }
 
@@ -73,8 +73,11 @@ export const useLegalAnalysis = ({ isOnline, licenseToken }: UseLegalAnalysisPro
 
       const response = await fetch(`${BACKEND_URL}/api/v1/legal/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ documentText, licenseToken }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ documentText }),
       });
 
       if (!response.ok) {
@@ -90,7 +93,7 @@ export const useLegalAnalysis = ({ isOnline, licenseToken }: UseLegalAnalysisPro
     } finally {
       setIsLoading(false);
     }
-  }, [isOnline, licenseToken]);
+  }, [isOnline, sessionToken]);
 
   return { result, isLoading, error, analyze };
 };

@@ -1,60 +1,105 @@
-import { Router, create } from "../deps.ts";
+import { Router } from "../deps.ts";
+import { type Account, billingService } from "../services/billingService.ts";
+import {
+  type MicrosoftIdentity,
+  microsoftIdentityService,
+  MicrosoftTokenValidationError,
+} from "../services/microsoftIdentityService.ts";
+import { wingSessionService } from "../services/wingSessionService.ts";
 import { track } from "../services/telemetry.ts";
 
-const router = new Router();
-const JWT_SECRET = Deno.env.get("JWT_SECRET");
-
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET não está definido nas variáveis de ambiente.");
+export interface SessionRouteDependencies {
+  validateMicrosoftToken: (token: string) => Promise<MicrosoftIdentity>;
+  getOrCreateAccount: (identity: MicrosoftIdentity) => Promise<Account>;
+  getPlan: (accountId: string) => Promise<string>;
+  issueSession: (identity: {
+    accountId: string;
+    microsoftObjectId: string;
+    tenantId: string;
+  }) => Promise<{ token: string; expiresAt: string }>;
+  trackEvent: (
+    eventName: string,
+    properties?: Record<string, unknown>,
+    accountId?: string,
+  ) => void;
 }
 
-// --- Rota de Autenticação com SSO da Microsoft ---
-router.post("/auth/office", async (ctx) => {
-  const { msToken } = await ctx.request.body.json();
-  if (!msToken) {
-    ctx.response.status = 400;
-    ctx.response.body = { error: "msToken não fornecido." };
-    return;
-  }
+const defaultDependencies: SessionRouteDependencies = {
+  validateMicrosoftToken: microsoftIdentityService.validateAccessToken,
+  getOrCreateAccount: billingService.getOrCreateMicrosoftAccount,
+  getPlan: async (accountId) =>
+    (await billingService.getEntitlement(accountId)).plan,
+  issueSession: wingSessionService.issue,
+  trackEvent: track,
+};
 
-  // TODO: Adicionar lógica de validação real do msToken com a Microsoft Graph API
-  // Esta é uma implementação de exemplo.
-  const userPayload = { sub: "user-id-from-ms-token", upn: "user@example.com" };
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(JWT_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const appJwt = await create({ alg: "HS256", typ: "JWT" }, userPayload, key);
+export const createAuthRouter = (
+  dependencies: SessionRouteDependencies = defaultDependencies,
+) => {
+  const router = new Router();
 
-  track("office_sso_success", { upn: userPayload.upn });
-  ctx.response.body = { appJwt };
-});
+  router.post("/session", async (ctx) => {
+    let microsoftAccessToken: unknown;
+    try {
+      ({ microsoftAccessToken } = await ctx.request.body.json());
+    } catch {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "Corpo JSON inválido." };
+      return;
+    }
 
-// --- Rota de Login com Usuário/Senha ---
-router.post("/login", async (ctx) => {
-  const { username, password } = await ctx.request.body.json();
+    if (
+      typeof microsoftAccessToken !== "string" ||
+      !microsoftAccessToken.trim()
+    ) {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "microsoftAccessToken é obrigatório." };
+      return;
+    }
 
-  if (username === "admin" && password === "password") {
-    const userPayload = { name: username, roles: ["admin"] };
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(JWT_SECRET),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    const token = await create({ alg: "HS256", typ: "JWT" }, userPayload, key);
-    
-    track("user_login_success", { username });
-    ctx.response.body = { token };
-  } else {
-    track("user_login_failed", { username });
-    ctx.response.status = 401;
-    ctx.response.body = { error: "Credenciais inválidas." };
-  }
-});
+    try {
+      const identity = await dependencies.validateMicrosoftToken(
+        microsoftAccessToken,
+      );
+      const account = await dependencies.getOrCreateAccount(identity);
+      const plan = await dependencies.getPlan(account.id);
+      const session = await dependencies.issueSession({
+        accountId: account.id,
+        microsoftObjectId: identity.objectId,
+        tenantId: identity.tenantId,
+      });
 
-export default router;
+      dependencies.trackEvent("office_sso_success", undefined, account.id);
+      ctx.response.status = 201;
+      ctx.response.body = {
+        ...session,
+        user: {
+          email: account.email,
+          displayName: account.display_name || identity.displayName || null,
+          plan,
+        },
+      };
+    } catch (error) {
+      if (error instanceof MicrosoftTokenValidationError) {
+        dependencies.trackEvent("office_sso_failed", {
+          reason: "invalid_token",
+        });
+        ctx.response.status = 401;
+        ctx.response.body = { error: "Token Microsoft inválido ou expirado." };
+        return;
+      }
+
+      console.error("[Auth] Falha ao criar sessão Wing:", error);
+      ctx.response.status = 500;
+      ctx.response.body = { error: "Não foi possível iniciar a sessão Wing." };
+    }
+  });
+
+  // Logout (DELETE /session) mudou para magicLinkAuth.routes.ts — é
+  // agnóstico de proveniência e precisa continuar acessível mesmo com o SSO
+  // Microsoft desligado.
+
+  return router;
+};
+
+export default createAuthRouter();
