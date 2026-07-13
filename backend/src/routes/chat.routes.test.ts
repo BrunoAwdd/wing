@@ -34,7 +34,12 @@ const createTestApp = (
   const dependencies: ChatRouteDependencies = {
     generateStream: () => streamFrom(["resposta"]),
     getEntitlement: async () => ({ plan: "free", status: "inactive" }),
-    incrementUsage: async () => ({ requestsCount: 1, allowed: true }),
+    reserveCredits: async () => ({
+      reservationId: "00000000-0000-0000-0000-000000000001",
+      creditsUsed: 1,
+      allowed: true,
+    }),
+    settleCredits: async () => 1,
     isAccountRevoked: async () => false,
     now: () => 1_000,
     randomUUID: () => "session-1",
@@ -150,7 +155,11 @@ Deno.test("M3 chat: revalida entitlement e bloqueia cota antes do provedor", asy
       entitlementCalls += 1;
       return { plan: "free", status: "canceled" };
     },
-    incrementUsage: async () => ({ requestsCount: 20, allowed: false }),
+    reserveCredits: async () => ({
+      reservationId: "00000000-0000-0000-0000-000000000002",
+      creditsUsed: 1_000,
+      allowed: false,
+    }),
     generateStream: () => {
       providerCalls += 1;
       return streamFrom(["não deve ocorrer"]);
@@ -168,15 +177,49 @@ Deno.test("M3 chat: revalida entitlement e bloqueia cota antes do provedor", asy
   assertEquals(entitlementCalls, 2);
 });
 
+Deno.test("M4.5 chat: reserva histórico e liquida entrada e saída", async () => {
+  let reservedCredits = 0;
+  let settledCredits = 0;
+  const app = createTestApp({
+    reserveCredits: async (_accountId, _model, credits) => {
+      reservedCredits = credits;
+      return {
+        reservationId: "00000000-0000-0000-0000-000000000004",
+        creditsUsed: credits,
+        allowed: true,
+      };
+    },
+    settleCredits: async (_reservationId, charge) => {
+      settledCredits = charge.credits;
+      return charge.credits;
+    },
+    generateStream: () => streamFrom(["resposta"]),
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "pergunta",
+  }, token);
+
+  assertEquals(await response!.text(), "resposta");
+  assertEquals(reservedCredits > settledCredits, true);
+  assertEquals(settledCredits > 0, true);
+});
+
 Deno.test("M3 chat: conta revogada não envia novas mensagens mesmo com cota", async () => {
   let revoked = false;
   let providerCalls = 0;
   let usageCalls = 0;
   const app = createTestApp({
     isAccountRevoked: async () => revoked,
-    incrementUsage: async () => {
+    reserveCredits: async () => {
       usageCalls += 1;
-      return { requestsCount: 1, allowed: true };
+      return {
+        reservationId: "00000000-0000-0000-0000-000000000003",
+        creditsUsed: 1,
+        allowed: true,
+      };
     },
     generateStream: () => {
       providerCalls += 1;

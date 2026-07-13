@@ -3,7 +3,10 @@ import {
   assertExists,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Application, Router } from "../deps.ts";
-import { createBillingRouter, type BillingRouteDependencies } from "./billing.routes.ts";
+import {
+  type BillingRouteDependencies,
+  createBillingRouter,
+} from "./billing.routes.ts";
 import { StripeSignatureError } from "../services/stripeService.ts";
 import { wingSessionService } from "../services/wingSessionService.ts";
 
@@ -17,9 +20,10 @@ const createTestApp = (overrides: Partial<BillingRouteDependencies> = {}) => {
       created_at: "2026-07-12T12:00:00.000Z",
     }),
     getEntitlement: async () => ({ plan: "free", status: "inactive" }),
-    getUsage: async () => 0,
+    getUsage: async () => ({ requestsCount: 0, tokensUsed: 0, creditsUsed: 0 }),
     getOrCreateStripeCustomer: async () => "cus_123",
-    createCheckoutSession: async () => "https://checkout.stripe.com/session/xyz",
+    createCheckoutSession: async () =>
+      "https://checkout.stripe.com/session/xyz",
     createPortalSession: async () => "https://billing.stripe.com/portal/xyz",
     constructWebhookEvent: () => {
       throw new StripeSignatureError();
@@ -55,7 +59,11 @@ Deno.test("Billing /status: retorna plano, status e uso", async () => {
   const token = await withSession();
   const app = createTestApp({
     getEntitlement: async () => ({ plan: "pro", status: "active" }),
-    getUsage: async () => 7,
+    getUsage: async () => ({
+      requestsCount: 7,
+      tokensUsed: 12_500,
+      creditsUsed: 73,
+    }),
   });
   const response = await app.handle(
     new Request("http://localhost/api/v1/billing/status", {
@@ -68,7 +76,12 @@ Deno.test("Billing /status: retorna plano, status e uso", async () => {
   assertEquals(body, {
     plan: "pro",
     status: "active",
-    usage: { requestsCount: 7, limit: 20 },
+    usage: {
+      requestsCount: 7,
+      tokensUsed: 12_500,
+      creditsUsed: 73,
+      creditLimit: null,
+    },
   });
 });
 
@@ -204,7 +217,11 @@ Deno.test("Billing /webhook: 'created' rastreia conversão distinta de 'updated'
         id,
         type,
         data: {
-          object: { id: "sub_1", status: "active", metadata: { account_id: ACCOUNT_ID } },
+          object: {
+            id: "sub_1",
+            status: "active",
+            metadata: { account_id: ACCOUNT_ID },
+          },
         },
         // deno-lint-ignore no-explicit-any
       } as any),
@@ -233,7 +250,11 @@ Deno.test("Billing /webhook: evento duplicado (mesmo id) não é reprocessado", 
       id: "evt_dup",
       type: "customer.subscription.updated",
       data: {
-        object: { id: "sub_1", status: "active", metadata: { account_id: ACCOUNT_ID } },
+        object: {
+          id: "sub_1",
+          status: "active",
+          metadata: { account_id: ACCOUNT_ID },
+        },
       },
       // deno-lint-ignore no-explicit-any
     } as any),
@@ -284,7 +305,11 @@ Deno.test("Billing /webhook: falha no processamento desfaz o registro de idempot
       id: "evt_fail",
       type: "customer.subscription.updated",
       data: {
-        object: { id: "sub_1", status: "active", metadata: { account_id: ACCOUNT_ID } },
+        object: {
+          id: "sub_1",
+          status: "active",
+          metadata: { account_id: ACCOUNT_ID },
+        },
       },
       // deno-lint-ignore no-explicit-any
     } as any),

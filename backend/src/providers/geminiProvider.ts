@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "../deps.ts";
 import { AIProvider } from "./providerInterface.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-flash-3.5";
 
 class GeminiProvider implements AIProvider {
   private readonly genAI: GoogleGenerativeAI;
@@ -23,26 +23,29 @@ class GeminiProvider implements AIProvider {
       temperature?: number;
       entitlement?: string;
       systemInstruction?: string;
-    }
+      maxOutputTokens?: number;
+    },
   ): AsyncGenerator<string, void, unknown> {
     // Seleciona o modelo com base no nível da licença ou opção explícita
     let modelName = this.model;
 
     if (options?.model) {
       modelName = options.model;
-    } else if (options?.entitlement === "Paid") {
-      modelName = "gemini-2.5-flash";
     }
 
     const model = this.genAI.getGenerativeModel({
       model: modelName,
-      generationConfig: { temperature: options?.temperature ?? 0 },
+      generationConfig: {
+        temperature: options?.temperature ?? 0,
+        maxOutputTokens: options?.maxOutputTokens,
+      },
       systemInstruction: options?.systemInstruction,
     });
 
     console.log(
-      `Usando modelo: ${modelName} para o nível de acesso: ${options?.entitlement ?? "Unknown"
-      }`
+      `Usando modelo: ${modelName} para o nível de acesso: ${
+        options?.entitlement ?? "Unknown"
+      }`,
     ); // Log para depuração
 
     const result = await model.generateContentStream(prompt);
@@ -60,12 +63,16 @@ class GeminiProvider implements AIProvider {
       temperature?: number;
       entitlement?: string;
       systemInstruction?: string;
-    }
+      maxOutputTokens?: number;
+    },
   ): AsyncGenerator<string, void, unknown> {
     const modelName = options?.model || GEMINI_MODEL;
     const model = this.genAI.getGenerativeModel({
       model: modelName,
-      generationConfig: { temperature: options?.temperature ?? 0 },
+      generationConfig: {
+        temperature: options?.temperature ?? 0,
+        maxOutputTokens: options?.maxOutputTokens,
+      },
       systemInstruction: options?.systemInstruction,
     });
     const chat = model.startChat({
@@ -87,13 +94,15 @@ class GeminiProvider implements AIProvider {
       temperature?: number;
       entitlement?: string;
       systemInstruction?: string;
-    }
+      maxOutputTokens?: number;
+    },
   ): Promise<string> {
     const modelName = options?.model || this.model;
     const model = this.genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
         temperature: options?.temperature ?? 0,
+        maxOutputTokens: options?.maxOutputTokens,
         responseMimeType: "application/json",
         responseSchema: schema as any,
       },

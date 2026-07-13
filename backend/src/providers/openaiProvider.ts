@@ -6,16 +6,16 @@ export class OpenAIProvider implements AIProvider {
   constructor() {
     if (!OPENAI_API_KEY) {
       console.warn(
-        "OPENAI_API_KEY not set. OpenAI provider will fail if used."
+        "OPENAI_API_KEY not set. OpenAI provider will fail if used.",
       );
     }
   }
 
   async *generateContentStream(
     prompt: string,
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const model = options?.model || "gpt-4o-mini";
+    const model = options?.model || "gpt-5.6-terra";
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -28,12 +28,13 @@ export class OpenAIProvider implements AIProvider {
         messages: [
           {
             role: "system",
-            content:
-              options?.systemInstruction || "You are a helpful assistant.",
+            content: options?.systemInstruction ||
+              "You are a helpful assistant.",
           },
           { role: "user", content: prompt },
         ],
         temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.maxOutputTokens,
         stream: true,
       }),
     });
@@ -76,7 +77,7 @@ export class OpenAIProvider implements AIProvider {
   async *generateChatStream(
     prompt: string,
     history: any[],
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): AsyncGenerator<string, void, unknown> {
     // Convert history to OpenAI format if needed, or assume it's compatible
     // Wing history format: { role: 'user'|'model', parts: [{text: '...'}] }
@@ -89,7 +90,7 @@ export class OpenAIProvider implements AIProvider {
 
     messages.push({ role: "user", content: prompt });
 
-    const model = options?.model || "gpt-4o-mini";
+    const model = options?.model || "gpt-5.6-terra";
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -106,6 +107,7 @@ export class OpenAIProvider implements AIProvider {
           ...messages,
         ],
         temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.maxOutputTokens,
         stream: true,
       }),
     });
@@ -148,9 +150,9 @@ export class OpenAIProvider implements AIProvider {
   async generateStructuredContent(
     prompt: string,
     schema: object,
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): Promise<string> {
-    const model = options?.model || "gpt-4o-mini";
+    const model = options?.model || "gpt-5.6-terra";
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
@@ -163,13 +165,15 @@ export class OpenAIProvider implements AIProvider {
         messages: [
           {
             role: "system",
-            content:
-              options?.systemInstruction ||
-              `Responda APENAS com um JSON válido que siga este schema: ${JSON.stringify(schema)}`,
+            content: options?.systemInstruction ||
+              `Responda APENAS com um JSON válido que siga este schema: ${
+                JSON.stringify(schema)
+              }`,
           },
           { role: "user", content: prompt },
         ],
         temperature: options?.temperature ?? 0,
+        max_tokens: options?.maxOutputTokens,
         response_format: { type: "json_object" },
       }),
     });

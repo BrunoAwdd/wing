@@ -162,7 +162,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </Text>
             {billingStatus && (
               <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                Uso este mês: {billingStatus.usage.requestsCount}/{billingStatus.usage.limit}
+                Créditos: {billingStatus.usage.creditsUsed.toLocaleString("pt-BR")}
+                {billingStatus.usage.creditLimit !== null
+                  ? ` de ${billingStatus.usage.creditLimit.toLocaleString("pt-BR")}`
+                  : " usados"}
               </Text>
             )}
           </div>

@@ -4,6 +4,11 @@ import { billingService } from "./billingService.ts";
 import { generateTextStream } from "./aiService.ts";
 import type { PromptBuilder } from "../prompts.ts";
 import { getWingAuth } from "../middlewares/authMiddleware.ts";
+import {
+  estimateActionCharge,
+  estimateTokens,
+  resolveActionModel,
+} from "./creditUsage.ts";
 
 // Tipos que estavam em api.routes.ts
 type Paragraph = { id: string; text: string };
@@ -44,9 +49,25 @@ export const handleStreamRequest = async (
 
     const entitlement = await billingService.getEntitlement(auth.accountId);
 
-    // Calculate tokens (approximation for now: 1 word ~ 1.3 tokens, or just char count / 4)
     const totalChars = paragraphs.map((p) => p.text).join("\n").length;
-    const estimatedTokens = Math.ceil(totalChars / 4);
+    const structuredPrompt = promptBuilder(
+      JSON.stringify(paragraphs, null, 2),
+      options,
+    );
+    const maxOutputTokens = Number(
+      Deno.env.get("WING_ACTION_MAX_OUTPUT_TOKENS") || "4096",
+    );
+    const billableModel = resolveActionModel(
+      actionName,
+      options?.model,
+      Deno.env.get("GEMINI_MODEL"),
+      Deno.env.get("WING_TRANSLATION_MODEL") || "gemini-2.5-flash-lite",
+    );
+    const reservedCharge = estimateActionCharge(
+      structuredPrompt,
+      billableModel,
+      maxOutputTokens,
+    );
 
     // RFC 015 §11: cota Free é aplicada ANTES de chamar o provedor de IA.
     // Incremento atômico e condicional (função SQL) — evita condição de
@@ -54,16 +75,17 @@ export const handleStreamRequest = async (
     // tentativa que estoura o limite (senão requests_count infla a cada
     // retry do usuário, mesmo sem nunca ter chamado a IA).
     const freeMonthlyLimit = Number(
-      Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20",
+      Deno.env.get("WING_FREE_MONTHLY_CREDITS") || "1000",
     );
     const usageLimit = entitlement.plan === "free" ? freeMonthlyLimit : null;
-    const { allowed } = await billingService.incrementUsage(
+    const reservation = await billingService.reserveCredits(
       auth.accountId,
-      estimatedTokens,
+      billableModel,
+      reservedCharge.credits,
       usageLimit,
     );
 
-    if (!allowed) {
+    if (!reservation.allowed) {
       console.log("[HANDLER] Cota Free excedida.");
       ctx.response.status = 402;
       ctx.response.body = {
@@ -85,10 +107,6 @@ export const handleStreamRequest = async (
     );
     console.log("[HANDLER] 5. Evento de telemetria enviado");
 
-    const structuredPrompt = promptBuilder(
-      JSON.stringify(paragraphs, null, 2),
-      options,
-    );
     console.log("[HANDLER] 6. Prompt estruturado criado");
 
     try {
@@ -98,7 +116,8 @@ export const handleStreamRequest = async (
         entitlement: entitlement.plan === "pro" || entitlement.plan === "team"
           ? "Paid"
           : "Free",
-        model: options?.model,
+        model: billableModel,
+        maxOutputTokens,
       });
 
       // Configura a resposta para streaming
@@ -111,11 +130,13 @@ export const handleStreamRequest = async (
         async start(controller) {
           const encoder = new TextEncoder();
           let buffer = "";
+          let outputText = "";
           let outputItems = 0;
 
           try {
             for await (const chunk of aiStream) {
               buffer += chunk;
+              outputText += chunk;
 
               // Processa o buffer para encontrar JSONs completos (delimitados por nova linha)
               let newlineIndex;
@@ -182,6 +203,22 @@ export const handleStreamRequest = async (
             );
             controller.error(streamError);
           } finally {
+            try {
+              const actualCharge = estimateActionCharge(
+                structuredPrompt,
+                billableModel,
+                estimateTokens(outputText),
+              );
+              await billingService.settleCredits(
+                reservation.reservationId,
+                actualCharge,
+              );
+            } catch (settlementError) {
+              logger.error(
+                { err: settlementError },
+                "Falha ao liquidar consumo de tokens.",
+              );
+            }
             controller.close();
           }
         },
@@ -189,6 +226,17 @@ export const handleStreamRequest = async (
 
       ctx.response.body = body;
     } catch (innerError) {
+      await billingService.settleCredits(reservation.reservationId, {
+        credits: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      }).catch(
+        (settlementError) =>
+          logger.error(
+            { err: settlementError },
+            "Falha ao liberar reserva de tokens.",
+          ),
+      );
       logger.error(
         { err: innerError },
         `Erro na chamada de IA para /api/v1/${actionName}:`,

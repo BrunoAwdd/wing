@@ -13,8 +13,8 @@ import {
   requireWingSession,
 } from "../middlewares/authMiddleware.ts";
 
-const FREE_MONTHLY_LIMIT = Number(
-  Deno.env.get("WING_FREE_MONTHLY_REQUESTS") || "20",
+const FREE_MONTHLY_CREDIT_LIMIT = Number(
+  Deno.env.get("WING_FREE_MONTHLY_CREDITS") || "1000",
 );
 
 export interface BillingRouteDependencies {
@@ -22,7 +22,11 @@ export interface BillingRouteDependencies {
   getEntitlement: (
     accountId: string,
   ) => ReturnType<typeof billingService.getEntitlement>;
-  getUsage: (accountId: string, yyyymm: number) => Promise<number>;
+  getUsage: (accountId: string, yyyymm: number) => Promise<{
+    requestsCount: number;
+    tokensUsed: number;
+    creditsUsed: number;
+  }>;
   getOrCreateStripeCustomer: (account: Account) => Promise<string>;
   createCheckoutSession: typeof stripeService.createCheckoutSession;
   createPortalSession: typeof stripeService.createPortalSession;
@@ -39,11 +43,15 @@ const defaultDependencies: BillingRouteDependencies = {
   getUsage: async (accountId, yyyymm) => {
     const { data } = await supabase
       .from("usage_monthly")
-      .select("requests_count")
+      .select("requests_count, tokens_used, credits_used")
       .eq("account_id", accountId)
       .eq("yyyymm", yyyymm)
       .maybeSingle();
-    return data?.requests_count || 0;
+    return {
+      requestsCount: Number(data?.requests_count || 0),
+      tokensUsed: Number(data?.tokens_used || 0),
+      creditsUsed: Number(data?.credits_used || 0),
+    };
   },
   getOrCreateStripeCustomer: billingService.getOrCreateStripeCustomer,
   createCheckoutSession: stripeService.createCheckoutSession,
@@ -91,15 +99,17 @@ export const createBillingRouter = (
       `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}`,
     );
     // Leitura direta (sem incrementar) — só pra exibir o uso atual.
-    const requestsCount = await dependencies.getUsage(auth.accountId, yyyymm);
+    const usage = await dependencies.getUsage(auth.accountId, yyyymm);
 
     ctx.response.status = 200;
     ctx.response.body = {
       plan: entitlement.plan,
       status: entitlement.status,
       usage: {
-        requestsCount,
-        limit: FREE_MONTHLY_LIMIT,
+        ...usage,
+        creditLimit: entitlement.plan === "free"
+          ? FREE_MONTHLY_CREDIT_LIMIT
+          : null,
       },
     };
   });

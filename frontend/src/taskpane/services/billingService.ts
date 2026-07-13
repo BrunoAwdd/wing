@@ -7,7 +7,9 @@ export interface WingBillingStatus {
   status: string;
   usage: {
     requestsCount: number;
-    limit: number;
+    tokensUsed: number;
+    creditsUsed: number;
+    creditLimit: number | null;
   };
 }
 

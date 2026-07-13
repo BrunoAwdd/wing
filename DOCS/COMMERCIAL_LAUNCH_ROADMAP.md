@@ -23,6 +23,7 @@
 | M2 | Stripe, planos e cotas | Concluído | M1 | Wing pode cobrar e aplicar Free/Pro |
 | M3 | Chat com entitlement e histórico íntegro | Concluído | M1, M2 | Conversa segura e consistente |
 | M4 | Telemetria segura e confiável | Concluído | M1 | Métricas utilizáveis sem expor documentos |
+| M4.5 | Carteira mensal de créditos | Concluído | M2-M4 | Custo de IA controlado por conta e modelo |
 | M5 | Empacotamento e ambiente de produção | Pendente | M1-M4 | Add-in instalável fora do ambiente de dev |
 | M6 | Quality gate e piloto pago | Pendente | M1-M5 | Liberação controlada para clientes |
 
@@ -145,6 +146,38 @@ o evento válido incrementou a tabela e o evento com `documentText` retornou
 do add-in passou.
 
 Gate de saída: testes tentam enviar texto e propriedades desconhecidas e comprovam que nada disso é persistido.
+
+## M4.5 - Carteira mensal de créditos
+
+Entregáveis:
+
+- [x] definir um pote mensal único de créditos por conta e plano;
+- [x] definir tarifas relativas de entrada e saída por família de modelo;
+- [x] reservar créditos atomicamente antes de chamar o provedor;
+- [x] incluir prompt completo e histórico na reserva;
+- [x] liquidar a reserva com créditos, modelo e tokens estimados ao encerrar o stream;
+- [x] tornar a liquidação idempotente e liberar reserva em falha de inicialização;
+- [x] expor créditos usados, limite e quantidade de solicitações no billing;
+- [x] validar as RPCs contra o Supabase local e executar a suíte completa.
+
+Concluído em 2026-07-13. Tokens são uma unidade técnica interna; comercialmente,
+o usuário recebe uma carteira mensal única de créditos. Toda ação e mensagem de
+chat reserva créditos do mesmo saldo antes da IA. O débito varia por modelo e
+pelos tokens estimados de entrada e saída, com tarifa conservadora para modelos
+desconhecidos. Cada transação registra modelo, tokens e créditos, e sua
+liquidação é idempotente. O billing e a configuração expõem somente o saldo de
+créditos. A migration foi reaplicada com sucesso e o teste real contra o
+Postgres comprovou bloqueio concorrente e ausência de cobrança duplicada.
+A tabela inicial cobre Gemini Flash 3.5; GPT 5.6 Luna, Terra e Sol; e Claude
+Sonnet 5, Opus 4.8 e Fable. Claude Haiku possui tarifa cadastrada, mas permanece
+fora da oferta inicial.
+Traduções são roteadas para Gemini 2.5 Flash-Lite e debitam 1 crédito por mil
+tokens de entrada e 2 créditos por mil tokens de saída.
+A suíte encerrou com 70 testes aprovados, além do teste opt-in de banco, e o
+build do add-in passou.
+
+Gate de saída: chamadas concorrentes não ultrapassam a cota, uma tentativa
+bloqueada não chama a IA e a liquidação repetida não duplica nem reduz consumo.
 
 ## M5 - Empacotamento e ambiente de produção
 

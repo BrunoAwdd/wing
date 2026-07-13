@@ -85,8 +85,10 @@ Deno.test("Wing session: rejeita assinatura adulterada", async () => {
     now: () => now,
   });
   const issued = await service.issue(IDENTITY);
-  const finalCharacter = issued.token.endsWith("a") ? "b" : "a";
-  const tampered = issued.token.slice(0, -1) + finalCharacter;
+  const segments = issued.token.split(".");
+  const firstSignatureCharacter = segments[2][0] === "a" ? "b" : "a";
+  segments[2] = firstSignatureCharacter + segments[2].slice(1);
+  const tampered = segments.join(".");
 
   await assertRejects(
     () => service.verify(tampered),

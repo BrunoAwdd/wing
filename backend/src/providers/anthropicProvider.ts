@@ -6,16 +6,16 @@ export class AnthropicProvider implements AIProvider {
   constructor() {
     if (!ANTHROPIC_API_KEY) {
       console.warn(
-        "ANTHROPIC_API_KEY not set. Anthropic provider will fail if used."
+        "ANTHROPIC_API_KEY not set. Anthropic provider will fail if used.",
       );
     }
   }
 
   async *generateContentStream(
     prompt: string,
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const model = options?.model || "claude-3-5-sonnet-20240620";
+    const model = options?.model || "claude-sonnet-5";
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -26,7 +26,7 @@ export class AnthropicProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4096,
+        max_tokens: options?.maxOutputTokens ?? 4096,
         system: options?.systemInstruction,
         messages: [{ role: "user", content: prompt }],
         temperature: options?.temperature ?? 0.7,
@@ -73,9 +73,9 @@ export class AnthropicProvider implements AIProvider {
   async *generateChatStream(
     prompt: string,
     history: any[],
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const model = options?.model || "claude-3-5-sonnet-20240620";
+    const model = options?.model || "claude-sonnet-5";
 
     // Convert history
     // Wing: { role: 'user'|'model', parts: [{text: '...'}] }
@@ -96,7 +96,7 @@ export class AnthropicProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4096,
+        max_tokens: options?.maxOutputTokens ?? 4096,
         system: options?.systemInstruction,
         messages: messages,
         temperature: options?.temperature ?? 0.7,
@@ -143,9 +143,9 @@ export class AnthropicProvider implements AIProvider {
   async generateStructuredContent(
     prompt: string,
     schema: object,
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): Promise<string> {
-    const model = options?.model || "claude-3-5-sonnet-20240620";
+    const model = options?.model || "claude-sonnet-5";
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -156,10 +156,11 @@ export class AnthropicProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4096,
-        system:
-          options?.systemInstruction ||
-          `Responda APENAS com um JSON válido, sem texto ao redor, seguindo este schema: ${JSON.stringify(schema)}`,
+        max_tokens: options?.maxOutputTokens ?? 4096,
+        system: options?.systemInstruction ||
+          `Responda APENAS com um JSON válido, sem texto ao redor, seguindo este schema: ${
+            JSON.stringify(schema)
+          }`,
         messages: [{ role: "user", content: prompt }],
         temperature: options?.temperature ?? 0,
       }),

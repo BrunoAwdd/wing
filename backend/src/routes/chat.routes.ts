@@ -1,11 +1,17 @@
 import { type Context, Router } from "../deps.ts";
 import { generateChatStream } from "../services/aiService.ts";
 import { billingService } from "../services/billingService.ts";
+import logger from "../services/logger.ts";
 import { track } from "../services/telemetry.ts";
 import {
   getWingAuth,
   requireWingSession,
 } from "../middlewares/authMiddleware.ts";
+import {
+  estimateChatCharge,
+  estimateTokens,
+  resolveBillableModel,
+} from "../services/creditUsage.ts";
 
 export interface ChatHistoryEntry {
   role: "user" | "model";
@@ -33,7 +39,8 @@ export interface ChatLimits {
 export interface ChatRouteDependencies {
   generateStream: typeof generateChatStream;
   getEntitlement: typeof billingService.getEntitlement;
-  incrementUsage: typeof billingService.incrementUsage;
+  reserveCredits: typeof billingService.reserveCredits;
+  settleCredits: typeof billingService.settleCredits;
   isAccountRevoked: typeof billingService.isAccountRevoked;
   now: () => number;
   randomUUID: () => string;
@@ -61,7 +68,8 @@ const defaultLimits: ChatLimits = {
 const defaultDependencies: ChatRouteDependencies = {
   generateStream: generateChatStream,
   getEntitlement: billingService.getEntitlement,
-  incrementUsage: billingService.incrementUsage,
+  reserveCredits: billingService.reserveCredits,
+  settleCredits: billingService.settleCredits,
   isAccountRevoked: billingService.isAccountRevoked,
   now: Date.now,
   randomUUID: crypto.randomUUID,
@@ -253,6 +261,10 @@ export const createChatRouter = (
     session.inFlight = true;
 
     let entitlement: Awaited<ReturnType<typeof dependencies.getEntitlement>>;
+    let reservationId = "";
+    let maxOutputTokens = 0;
+    const billableModel = resolveBillableModel(Deno.env.get("GEMINI_MODEL"));
+    const historyBeforeMessage = session.history.slice();
     try {
       if (await dependencies.isAccountRevoked(auth.accountId)) {
         ctx.response.status = 403;
@@ -266,16 +278,27 @@ export const createChatRouter = (
 
       entitlement = await dependencies.getEntitlement(auth.accountId);
       const freeMonthlyLimit = positiveInteger(
-        "WING_FREE_MONTHLY_REQUESTS",
-        20,
+        "WING_FREE_MONTHLY_CREDITS",
+        1_000,
       );
-      const estimatedTokens = Math.ceil(message.length / 4);
+      maxOutputTokens = positiveInteger(
+        "WING_CHAT_MAX_OUTPUT_TOKENS",
+        2_048,
+      );
+      const reservedCharge = estimateChatCharge(
+        message,
+        historyBeforeMessage,
+        billableModel,
+        maxOutputTokens,
+      );
       const usageLimit = entitlement.plan === "free" ? freeMonthlyLimit : null;
-      const usage = await dependencies.incrementUsage(
+      const usage = await dependencies.reserveCredits(
         auth.accountId,
-        estimatedTokens,
+        billableModel,
+        reservedCharge.credits,
         usageLimit,
       );
+      reservationId = usage.reservationId;
       if (!usage.allowed) {
         ctx.response.status = 402;
         ctx.response.body = {
@@ -292,12 +315,28 @@ export const createChatRouter = (
     }
 
     const trimmedMessage = message.trim();
-    const historyBeforeMessage = session.history.slice();
-    const stream = dependencies.generateStream(
-      trimmedMessage,
-      historyBeforeMessage,
-      { entitlement: entitlement.plan },
-    );
+    let stream: ReturnType<typeof dependencies.generateStream>;
+    try {
+      stream = dependencies.generateStream(
+        trimmedMessage,
+        historyBeforeMessage,
+        { entitlement: entitlement.plan, maxOutputTokens },
+      );
+    } catch (error) {
+      await dependencies.settleCredits(reservationId, {
+        credits: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      }).catch(
+        (settlementError) =>
+          logger.error(
+            { err: settlementError },
+            "Falha ao liberar reserva do chat.",
+          ),
+      );
+      session.inFlight = false;
+      throw error;
+    }
     session.history.push({ role: "user", parts: [{ text: trimmedMessage }] });
 
     ctx.response.status = 200;
@@ -333,6 +372,20 @@ export const createChatRouter = (
         );
         throw error;
       } finally {
+        if (reservationId) {
+          const actualCharge = estimateChatCharge(
+            trimmedMessage,
+            historyBeforeMessage,
+            billableModel,
+            estimateTokens(completeResponse),
+          );
+          await dependencies.settleCredits(
+            reservationId,
+            actualCharge,
+          ).catch((error) => {
+            logger.error({ err: error }, "Falha ao liquidar consumo do chat.");
+          });
+        }
         session.inFlight = false;
       }
     })();
