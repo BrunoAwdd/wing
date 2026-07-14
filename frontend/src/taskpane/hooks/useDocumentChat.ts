@@ -18,6 +18,10 @@ interface UseDocumentChatProps {
   // compartilhada, outra conta que abrisse o mesmo documento restauraria a
   // conversa da conta anterior.
   accountEmail: string;
+  // M4.6: identifica esta instância aberta do Word — obrigatório em
+  // /chat/start e /chat/message, senão o backend não sabe vincular a
+  // sessão de chat a uma instância específica.
+  appSessionId: string | null;
 }
 
 // Função auxiliar para ler o documento inteiro como texto puro
@@ -48,6 +52,7 @@ export const useDocumentChat = ({
   sessionToken,
   qualityLevel,
   accountEmail,
+  appSessionId,
 }: UseDocumentChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -110,7 +115,7 @@ export const useDocumentChat = ({
   }, [messages, accountEmail]);
 
   const startAnalysis = useCallback(async () => {
-    if (!isOnline || !sessionToken) {
+    if (!isOnline || !sessionToken || !appSessionId) {
       setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
       return;
     }
@@ -131,6 +136,7 @@ export const useDocumentChat = ({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${sessionToken}`,
+          "X-Wing-App-Session": appSessionId,
         },
         body: JSON.stringify({ documentText }),
       });
@@ -155,7 +161,7 @@ export const useDocumentChat = ({
     } finally {
       setIsLoading(false);
     }
-  }, [isOnline, sessionToken, accountEmail]);
+  }, [isOnline, sessionToken, accountEmail, appSessionId]);
 
   // Reconecta silenciosamente com uma sessão nova quando existe uma
   // conversa restaurada do cache mas nenhuma sessão de backend viva ainda
@@ -167,7 +173,7 @@ export const useDocumentChat = ({
   // ilimitado" (gate de saída do M4.5).
   const ensureSession = useCallback(async (): Promise<string | null> => {
     if (sessionId) return sessionId;
-    if (!isOnline || !sessionToken) {
+    if (!isOnline || !sessionToken || !appSessionId) {
       setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
       return null;
     }
@@ -187,6 +193,7 @@ export const useDocumentChat = ({
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionToken}`,
+        "X-Wing-App-Session": appSessionId,
       },
       body: JSON.stringify({ documentText, priorMessages }),
     });
@@ -199,7 +206,7 @@ export const useDocumentChat = ({
     const { sessionId: newSessionId } = await response.json();
     setSessionId(newSessionId);
     return newSessionId;
-  }, [sessionId, isOnline, sessionToken, messages]);
+  }, [sessionId, isOnline, sessionToken, messages, appSessionId]);
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -228,12 +235,21 @@ export const useDocumentChat = ({
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${sessionToken}`,
+            "X-Wing-App-Session": appSessionId || "",
           },
           body: JSON.stringify({ sessionId: activeSessionId, message, qualityLevel }),
         });
 
         if (!response.ok || !response.body) {
           const errorData = await response.json();
+          // M4.6: a app session pode ter expirado no meio da conversa (Word
+          // fechado, heartbeat parou) mesmo com o chat ainda dentro do seu
+          // próprio TTL — distinto de um erro genérico, pede reabrir o painel
+          // em vez de só tentar de novo.
+          if (errorData.code === "app_session_expired") {
+            setSessionId(null);
+            throw new Error("Sua sessão desta instância expirou. Feche e reabra o painel.");
+          }
           throw new Error(errorData.error || "Falha ao enviar a mensagem.");
         }
 
@@ -262,7 +278,7 @@ export const useDocumentChat = ({
         setIsLoading(false);
       }
     },
-    [ensureSession, sessionToken, qualityLevel, accountEmail]
+    [ensureSession, sessionToken, qualityLevel, accountEmail, appSessionId]
   );
 
   const clearConversation = useCallback(() => {

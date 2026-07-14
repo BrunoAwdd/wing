@@ -18,9 +18,10 @@ const limits: ChatLimits = {
   maxDocumentChars: 100,
   maxMessageChars: 40,
   maxMessages: 2,
-  maxSessionsPerAccount: 2,
   sessionTtlMs: 1_000,
 };
+
+const DEFAULT_APP_SESSION_ID = "app-session-1";
 
 const streamFrom = (chunks: string[]): AsyncGenerator<string, void, unknown> =>
   (async function* () {
@@ -47,6 +48,20 @@ const createTestApp = (
     cancelExpiration: () => undefined,
     trackEvent: () => undefined,
     getCachedContent: async () => null,
+    appSessions: {
+      validate: (appSessionId, accountId) =>
+        appSessionId === DEFAULT_APP_SESSION_ID
+          ? {
+            appSessionId,
+            accountId,
+            documentId: "doc-1",
+            createdAt: 0,
+            lastHeartbeatAt: 0,
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            timeoutId: 1,
+          }
+          : null,
+    },
     ...overrides,
   };
   const app = new Application();
@@ -66,6 +81,7 @@ const request = async (
   path: "/start" | "/message",
   body: Record<string, unknown>,
   token?: string,
+  appSessionId: string | null = DEFAULT_APP_SESSION_ID,
 ) =>
   await app.handle(
     new Request(`http://localhost/api/v1/chat${path}`, {
@@ -73,6 +89,7 @@ const request = async (
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(appSessionId ? { "X-Wing-App-Session": appSessionId } : {}),
       },
       body: JSON.stringify(body),
     }),
@@ -635,4 +652,107 @@ Deno.test("M4.5 chat: sem hit real, telemetria registra cached:0 e cached_tokens
 
   const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
   assertEquals(cacheEvent?.properties, { cached: 0, cached_tokens: 0, provider: "openai" });
+});
+
+Deno.test("M4.6 chat: /start exige X-Wing-App-Session", async () => {
+  const token = await withSession();
+  const app = createTestApp();
+  const response = await request(
+    app,
+    "/start",
+    { documentText: "Documento" },
+    token,
+    null,
+  );
+  assertEquals(response?.status, 400);
+  assertEquals((await response!.json()).code, "app_session_required");
+});
+
+Deno.test("M4.6 chat: /start rejeita app session inválida ou de outra conta", async () => {
+  const token = await withSession();
+  const app = createTestApp();
+  const response = await request(
+    app,
+    "/start",
+    { documentText: "Documento" },
+    token,
+    "app-session-inexistente",
+  );
+  assertEquals(response?.status, 403);
+  assertEquals((await response!.json()).code, "app_session_expired");
+});
+
+Deno.test("M4.6 chat: /message revalida app session e falha se ela expirou no meio da conversa", async () => {
+  let appSessionRevoked = false;
+  const app = createTestApp({
+    appSessions: {
+      validate: (appSessionId, accountId) =>
+        !appSessionRevoked && appSessionId === DEFAULT_APP_SESSION_ID
+          ? {
+            appSessionId,
+            accountId,
+            documentId: "doc-1",
+            createdAt: 0,
+            lastHeartbeatAt: 0,
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            timeoutId: 1,
+          }
+          : null,
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  appSessionRevoked = true;
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Oi",
+  }, token);
+  assertEquals(response?.status, 403);
+  assertEquals((await response!.json()).code, "app_session_expired");
+});
+
+Deno.test("M4.6 chat: nenhum limite de sessões simultâneas por conta — três instâncias coexistem sem contaminação de histórico", async () => {
+  const validAppSessionIds = new Set(["app-a", "app-b", "app-c"]);
+  let sessionCounter = 0;
+  const app = createTestApp({
+    randomUUID: () => `session-${++sessionCounter}`,
+    appSessions: {
+      validate: (appSessionId, accountId) =>
+        validAppSessionIds.has(appSessionId)
+          ? {
+            appSessionId,
+            accountId,
+            documentId: "doc-1",
+            createdAt: 0,
+            lastHeartbeatAt: 0,
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            timeoutId: 1,
+          }
+          : null,
+    },
+  });
+  const token = await withSession();
+
+  const sessionIds: string[] = [];
+  for (const appSessionId of ["app-a", "app-b", "app-c"]) {
+    const response = await request(
+      app,
+      "/start",
+      { documentText: "Documento" },
+      token,
+      appSessionId,
+    );
+    assertEquals(response?.status, 201);
+    sessionIds.push((await response!.json()).sessionId as string);
+  }
+  assertEquals(new Set(sessionIds).size, 3);
+
+  for (let i = 0; i < sessionIds.length; i++) {
+    const response = await request(app, "/message", {
+      sessionId: sessionIds[i],
+      message: `pergunta ${i}`,
+    }, token, ["app-a", "app-b", "app-c"][i]);
+    assertEquals(response?.status, 200);
+  }
 });

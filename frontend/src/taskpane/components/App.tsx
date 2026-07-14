@@ -29,6 +29,7 @@ import LegalAnalysisPage from "./LegalAnalysisPage";
 import DocumentDesignPage from "./DocumentDesignPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
+import { useAppSession } from "../hooks/useAppSession";
 import { useWordInteraction, Paragraph, TranslationPlacement } from "../hooks/useWordInteraction";
 import LastUpdatesPage from "./LastUpdatesPage";
 import { useAIApi } from "../hooks/useAIApi";
@@ -159,6 +160,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     signOut,
     isOnline,
   } = useAppSetup({ addLog, showFluentToast });
+  const { appSessionId } = useAppSession({ sessionToken, isOnline });
   const {
     originalText,
     selectAllDocument,
@@ -357,6 +359,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         sessionToken={sessionToken}
         qualityLevel={qualityLevel}
         accountEmail={sessionUser.email}
+        appSessionId={appSessionId}
       />
     );
   }

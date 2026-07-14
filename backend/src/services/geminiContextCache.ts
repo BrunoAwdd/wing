@@ -3,10 +3,14 @@ import { GoogleAICacheManager } from "../deps.ts";
 // M4.5: cache de prompt no provedor pro prefixo estável (instruções +
 // documento) do chat "Fale com o documento" — sem isso, cada mensagem
 // reenvia o documento inteiro pro Gemini, mesmo quando ele não mudou desde
-// a última pergunta. Isolado por conta, documento, modelo e versão do
-// prompt: qualquer mudança em um desses gera uma chave nova, então o cache
-// antigo nunca é reaproveitado incorretamente (invalidação por construção,
-// sem precisar rastrear "o que mudou").
+// a última pergunta. Isolado por conta, documento, modelo, versão do prompt
+// e — desde o M4.6 — pela app session (instância aberta do Word): qualquer
+// mudança em um desses gera uma chave nova, então o cache antigo nunca é
+// reaproveitado incorretamente (invalidação por construção, sem precisar
+// rastrear "o que mudou"). Incluir a app session significa que duas
+// instâncias abertas do mesmo documento não compartilham o mesmo cache
+// remoto — cada uma paga o custo do próprio prefixo na primeira mensagem,
+// mas nenhum estado de execução atravessa instâncias.
 //
 // A chamada real ao GoogleAICacheManager é best-effort: documentos pequenos
 // demais pra qualificar pro cache do Gemini (ou qualquer outra falha da
@@ -17,6 +21,10 @@ export const PROMPT_VERSION = "v1";
 export interface CachedPrefix {
   name: string;
   expiresAt: number;
+  // Só pra rastreio/observabilidade (logs, inspeção em teste) — não é
+  // credencial nem dado de autenticação, apenas identifica qual "janela"
+  // (app session) criou esta entrada do cache.
+  appSessionId: string;
 }
 
 export interface CacheClient {
@@ -42,12 +50,13 @@ export const hashDocumentKey = async (
   accountId: string,
   documentText: string,
   model: string,
+  appSessionId: string,
   promptVersion: string = PROMPT_VERSION,
   systemInstruction: string = "",
 ): Promise<string> =>
   `${accountId}:${await hashHex(documentText)}:${await hashHex(
     systemInstruction,
-  )}:${model}:${promptVersion}`;
+  )}:${model}:${promptVersion}:${appSessionId}`;
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
@@ -120,12 +129,14 @@ export const createGeminiContextCache = (
       model: string;
       systemInstruction: string;
       ttlSeconds: number;
+      appSessionId: string;
       promptVersion?: string;
     }): Promise<{ name: string; hit: boolean } | null> => {
       const key = await hashDocumentKey(
         params.accountId,
         params.documentText,
         params.model,
+        params.appSessionId,
         params.promptVersion,
         params.systemInstruction,
       );
@@ -146,6 +157,7 @@ export const createGeminiContextCache = (
       cache.set(key, {
         name: created.name,
         expiresAt: now + params.ttlSeconds * 1000,
+        appSessionId: params.appSessionId,
       });
       return { name: created.name, hit: false };
     },

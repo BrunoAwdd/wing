@@ -1,6 +1,7 @@
 import { Application, Context, oakCors, Router } from "./deps.ts";
 import logger from "./services/logger.ts";
 import chatRouter from "./routes/chat.routes.ts";
+import appSessionRouter from "./routes/appSession.routes.ts";
 import legalRouter from "./routes/legal.routes.ts";
 import designRouter from "./routes/design.routes.ts";
 import telemetryRouter from "./routes/telemetry.routes.ts";
@@ -43,7 +44,7 @@ app.use(
       "https://wing.ai", // Prod
       "null", // Office.js (Local)
     ],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Wing-App-Session"],
     methods: ["GET", "POST", "DELETE", "OPTIONS"],
     optionsSuccessStatus: 200,
   }),
@@ -95,6 +96,11 @@ rootRouter.use(
   "/api/v1/chat",
   chatRouter.routes(),
   chatRouter.allowedMethods(),
+);
+rootRouter.use(
+  "/api/v1/app-sessions",
+  appSessionRouter.routes(),
+  appSessionRouter.allowedMethods(),
 );
 rootRouter.use(
   "/api/v1/telemetry",

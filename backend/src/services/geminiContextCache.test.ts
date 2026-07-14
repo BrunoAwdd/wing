@@ -14,6 +14,7 @@ const params = (
   model: "gemini-3.1-flash-lite",
   systemInstruction: "Você é um assistente.",
   ttlSeconds: 300,
+  appSessionId: "app-session-1",
   ...overrides,
 });
 
@@ -64,7 +65,7 @@ Deno.test("geminiContextCache: expira pelo TTL e cria de novo", async () => {
 });
 
 Deno.test(
-  "geminiContextCache: chaves diferentes (conta, documento, modelo, versão) nunca colidem",
+  "geminiContextCache: chaves diferentes (conta, documento, modelo, versão, app session) nunca colidem",
   async () => {
     const createdKeys = new Set<string>();
     const cache = createGeminiContextCache({
@@ -82,8 +83,33 @@ Deno.test(
     await cache.getOrCreate(
       params({ systemInstruction: "instrução revisada" }),
     );
+    await cache.getOrCreate(params({ appSessionId: "app-session-2" }));
 
-    assertEquals(cache.size(), 6);
+    assertEquals(cache.size(), 7);
+  },
+);
+
+Deno.test(
+  "M4.6 geminiContextCache: duas app sessions no mesmo documento não reaproveitam o cache uma da outra",
+  async () => {
+    let createCalls = 0;
+    const cache = createGeminiContextCache({
+      now: () => 0,
+      client: {
+        create: async () => {
+          createCalls += 1;
+          return { name: `cachedContents/${createCalls}` };
+        },
+      },
+    });
+
+    const first = await cache.getOrCreate(params({ appSessionId: "app-a" }));
+    const second = await cache.getOrCreate(params({ appSessionId: "app-b" }));
+
+    assertEquals(createCalls, 2);
+    assertEquals(first?.hit, false);
+    assertEquals(second?.hit, false);
+    assertEquals(first?.name === second?.name, false);
   },
 );
 
@@ -108,19 +134,29 @@ Deno.test(
       "acc",
       "documento X",
       "gemini-3.1-flash-lite",
+      "app-session-1",
     );
     const b = await hashDocumentKey(
       "acc",
       "documento X",
       "gemini-3.1-flash-lite",
+      "app-session-1",
     );
     const c = await hashDocumentKey(
       "acc",
       "documento Y",
       "gemini-3.1-flash-lite",
+      "app-session-1",
+    );
+    const d = await hashDocumentKey(
+      "acc",
+      "documento X",
+      "gemini-3.1-flash-lite",
+      "app-session-2",
     );
 
     assertEquals(a, b);
     assertEquals(a === c, false);
+    assertEquals(a === d, false);
   },
 );

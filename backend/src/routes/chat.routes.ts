@@ -19,6 +19,10 @@ import {
 } from "../services/qualityLevels.ts";
 import { compactHistory, DEFAULT_CONTEXT_WINDOW_ENTRIES } from "../services/chatContextCache.ts";
 import { geminiContextCache } from "../services/geminiContextCache.ts";
+import {
+  type AppSessionService,
+  appSessionService,
+} from "../services/appSessionService.ts";
 
 export interface ChatHistoryEntry {
   role: "user" | "model";
@@ -27,6 +31,11 @@ export interface ChatHistoryEntry {
 
 interface ChatSession {
   accountId: string;
+  // M4.6: vem do appSessionId validado no /start, nunca de um campo enviado
+  // pelo cliente — assim a sessão de chat nunca pode se anexar a uma
+  // instância/documento diferente daquela em que foi criada.
+  appSessionId: string;
+  documentId: string;
   createdAt: number;
   expiresAt: number;
   // Separado do histórico conversacional (M4.5): é o prefixo estável
@@ -47,7 +56,6 @@ export interface ChatLimits {
   maxDocumentChars: number;
   maxMessageChars: number;
   maxMessages: number;
-  maxSessionsPerAccount: number;
   sessionTtlMs: number;
 }
 
@@ -63,6 +71,7 @@ export interface ChatRouteDependencies {
   cancelExpiration: (timeoutId: number) => void;
   trackEvent: typeof track;
   getCachedContent: typeof geminiContextCache.getOrCreate;
+  appSessions: Pick<AppSessionService, "validate">;
 }
 
 const positiveInteger = (name: string, fallback: number): number => {
@@ -74,10 +83,6 @@ const defaultLimits: ChatLimits = {
   maxDocumentChars: positiveInteger("WING_CHAT_MAX_DOCUMENT_CHARS", 120_000),
   maxMessageChars: positiveInteger("WING_CHAT_MAX_MESSAGE_CHARS", 4_000),
   maxMessages: positiveInteger("WING_CHAT_MAX_MESSAGES", 30),
-  maxSessionsPerAccount: positiveInteger(
-    "WING_CHAT_MAX_SESSIONS_PER_ACCOUNT",
-    3,
-  ),
   sessionTtlMs: positiveInteger("WING_CHAT_SESSION_TTL_MS", 30 * 60 * 1000),
 };
 
@@ -97,6 +102,7 @@ const defaultDependencies: ChatRouteDependencies = {
   cancelExpiration: clearTimeout,
   trackEvent: track,
   getCachedContent: geminiContextCache.getOrCreate,
+  appSessions: appSessionService,
 };
 
 const readJson = async (
@@ -188,20 +194,35 @@ export const createChatRouter = (
       };
       return;
     }
-    const entitlement = await dependencies.getEntitlement(auth.accountId);
-    removeExpiredSessions();
-
-    const activeSessionCount = [...sessions.values()].filter((session) =>
-      session.accountId === auth.accountId
-    ).length;
-    if (activeSessionCount >= limits.maxSessionsPerAccount) {
-      ctx.response.status = 429;
+    // M4.6: appSessionId identifica a instância aberta do Word (independente
+    // do login) — a sessão de chat herda dele o vínculo com o documento, em
+    // vez de aceitar um documentId enviado solto pelo cliente. Sem cap por
+    // conta: qualquer quantidade de instâncias é permitida, só o saldo de
+    // créditos limita.
+    const appSessionId = ctx.request.headers.get("X-Wing-App-Session");
+    if (!isNonEmptyString(appSessionId)) {
+      ctx.response.status = 400;
       ctx.response.body = {
-        error: "Limite de sessões de chat simultâneas atingido.",
-        code: "chat_session_limit",
+        error: "Sessão de instância do Word ausente.",
+        code: "app_session_required",
       };
       return;
     }
+    const appSession = dependencies.appSessions.validate(
+      appSessionId,
+      auth.accountId,
+    );
+    if (!appSession) {
+      ctx.response.status = 403;
+      ctx.response.body = {
+        error: "Sessão de instância do Word inválida ou expirada.",
+        code: "app_session_expired",
+      };
+      return;
+    }
+
+    const entitlement = await dependencies.getEntitlement(auth.accountId);
+    removeExpiredSessions();
 
     // Reconstrói o contexto de uma conversa restaurada (cache local do
     // cliente) sem "reenviar histórico ilimitado" — sempre compactado pra
@@ -222,6 +243,8 @@ export const createChatRouter = (
     }, limits.sessionTtlMs);
     sessions.set(sessionId, {
       accountId: auth.accountId,
+      appSessionId: appSession.appSessionId,
+      documentId: appSession.documentId,
       createdAt: now,
       expiresAt: now + limits.sessionTtlMs,
       documentText,
@@ -276,6 +299,17 @@ export const createChatRouter = (
       ctx.response.status = 404;
       ctx.response.body = {
         error: "Sessão de chat não encontrada ou expirada.",
+      };
+      return;
+    }
+    // M4.6: revalida a cada mensagem, não só no /start — sem isto, fechar a
+    // instância do Word só cortaria o chat quando o TTL de 30 min do chat em
+    // si vencesse, um prazo muito mais longo e desacoplado do fechamento.
+    if (!dependencies.appSessions.validate(session.appSessionId, auth.accountId)) {
+      ctx.response.status = 403;
+      ctx.response.body = {
+        error: "Sessão de instância do Word expirada.",
+        code: "app_session_expired",
       };
       return;
     }
@@ -371,6 +405,9 @@ export const createChatRouter = (
           model: billableModel,
           systemInstruction,
           ttlSeconds: positiveInteger("WING_CHAT_PROMPT_CACHE_TTL_SECONDS", 3_600),
+          // M4.6: isola o cache remoto por instância — duas app sessions no
+          // mesmo documento não compartilham o mesmo cache de prompt.
+          appSessionId: session.appSessionId,
         }).catch((error) => {
           logger.error({ err: error }, "Falha ao obter cache de prompt do chat.");
           return null;

@@ -2,7 +2,7 @@
 
 **Status:** Ativo
 
-**Atualizado em:** 2026-07-13
+**Atualizado em:** 2026-07-14
 
 **Escopo:** transformar o núcleo comercial definido no RFC 014 em um produto vendável e operável.
 
@@ -16,19 +16,19 @@
 
 ## 2. Milestones
 
-| Ordem | Milestone | Estado | Dependência | Resultado comercial |
-|---|---|---|---|---|
-| M0 | Retirada do runtime aposentado | Concluído | - | Produto sem Agents, Maestro, Extensions ou MCP |
-| M1 | Identidade e sessão Wing | Em validação | M0 | Usuário autenticado de forma confiável |
-| M2 | Stripe, planos e cotas | Concluído | M1 | Wing pode cobrar e aplicar Free/Pro |
-| M3 | Chat com entitlement e histórico íntegro | Concluído | M1, M2 | Conversa segura e consistente |
-| M4 | Telemetria segura e confiável | Concluído | M1 | Métricas utilizáveis sem expor documentos |
-| M4.4 | Carteira mensal de créditos | Concluído | M2-M4 | Custo de IA controlado por conta e modelo |
-| M4.5 | Cache do Fale com o documento | Concluído | M3, M4.4 | Conversas contínuas com menor custo de contexto |
-| M4.6 | Sessão por instância do Word | Pendente | M1, M3, M4.5 | Documentos abertos isolados sem licença por assento |
-| M5 | Empacotamento e ambiente de produção | Pendente | M1-M4.6 | Add-in instalável fora do ambiente de dev |
-| M6 | Quality gate e piloto pago | Pendente | M1-M5 | Liberação controlada para clientes |
-| M7 | Enterprise | Futuro | M6 | Governança, múltiplas contas e controle de alterações |
+| Ordem | Milestone                                | Estado       | Dependência  | Resultado comercial                                   |
+| ----- | ---------------------------------------- | ------------ | ------------ | ----------------------------------------------------- |
+| M0    | Retirada do runtime aposentado           | Concluído    | -            | Produto sem Agents, Maestro, Extensions ou MCP        |
+| M1    | Identidade e sessão Wing                 | Em validação | M0           | Usuário autenticado de forma confiável                |
+| M2    | Stripe, planos e cotas                   | Concluído    | M1           | Wing pode cobrar e aplicar Free/Pro                   |
+| M3    | Chat com entitlement e histórico íntegro | Concluído    | M1, M2       | Conversa segura e consistente                         |
+| M4    | Telemetria segura e confiável            | Concluído    | M1           | Métricas utilizáveis sem expor documentos             |
+| M4.4  | Carteira mensal de créditos              | Concluído    | M2-M4        | Custo de IA controlado por conta e modelo             |
+| M4.5  | Cache do Fale com o documento            | Concluído    | M3, M4.4     | Conversas contínuas com menor custo de contexto       |
+| M4.6  | Sessão por instância do Word             | Concluído    | M1, M3, M4.5 | Documentos abertos isolados sem licença por assento   |
+| M5    | Empacotamento e ambiente de produção     | Pendente     | M1-M4.6      | Add-in instalável fora do ambiente de dev             |
+| M6    | Quality gate e piloto pago               | Pendente     | M1-M5        | Liberação controlada para clientes                    |
+| M7    | Enterprise                               | Futuro       | M6           | Governança, múltiplas contas e controle de alterações |
 
 ## M0 - Retirada do runtime aposentado
 
@@ -192,8 +192,9 @@ Entregáveis:
 
 O prefixo estável formado por instruções e documento deve ser separado das
 perguntas e respostas variáveis. O cache é isolado por conta, documento, modelo
-e versão do prompt. Metadados podem ser persistidos, mas nenhum registro do
-Wing deve armazenar o texto jurídico usado pelo cache remoto.
+e versão do prompt (desde o M4.6, também pela app session — ver abaixo).
+Metadados podem ser persistidos, mas nenhum registro do Wing deve armazenar o
+texto jurídico usado pelo cache remoto.
 
 Gate de saída: reabrir o painel restaura a conversa, uma nova sessão reconstrói
 o contexto sem reenviar histórico ilimitado e perguntas consecutivas sobre um
@@ -204,16 +205,43 @@ ou versão do prompt invalida o cache.
 
 Entregáveis:
 
-- [ ] criar `appSessionId` por instância aberta do Word, independente da sessão de login;
-- [ ] vincular cada app session ao documento aberto, ao chat e aos caches correspondentes;
-- [ ] implementar heartbeat, expiração e encerramento sem limitar dispositivos, pessoas ou sessões por conta;
-- [ ] remover `WING_CHAT_MAX_SESSIONS_PER_ACCOUNT` como regra comercial;
-- [ ] manter todas as app sessions debitando a mesma carteira da conta proprietária.
+- [x] criar `appSessionId` por instância aberta do Word, independente da sessão de login;
+- [x] vincular cada app session ao documento aberto, ao chat e aos caches correspondentes;
+- [x] implementar heartbeat, expiração e encerramento sem limitar dispositivos, pessoas ou sessões por conta;
+- [x] remover `WING_CHAT_MAX_SESSIONS_PER_ACCOUNT` como regra comercial;
+- [x] manter todas as app sessions debitando a mesma carteira da conta proprietária;
+- [x] Basta um único refresh token para manter todas as sessões vivas. (No mesmo computador)
 
 Três documentos abertos representam três app sessions. O mesmo documento
 aberto em dois computadores representa duas app sessions. A sessão Wing segue
 responsável somente por autenticação; a app session isola a instância do Word;
 a chat session representa a conversa; e a carteira permanece única por conta.
+
+Concluído em 2026-07-14. `appSessionId` é gerado pelo backend a cada
+`POST /api/v1/app-sessions`, nunca persistido no documento nem derivado de
+`wing_doc_id` (que identifica o arquivo, não a instância). O frontend registra
+a instância ao abrir o painel, envia heartbeat a cada 3 minutos e tenta
+encerrar a app session no fechamento (best-effort, já que o Office.js não
+garante executar JS no encerramento de todas as instâncias do Word) — quem de
+fato garante o fim de uma instância fechada é o TTL do servidor
+(`WING_APP_SESSION_TTL_MS`, 10 minutos por padrão) expirando por falta de
+heartbeat. `/chat/start` e `/chat/message` exigem o cabeçalho
+`X-Wing-App-Session` e revalidam a cada mensagem, não só na criação — assim
+fechar uma instância corta o chat correspondente bem antes do TTL de 30
+minutos do chat em si. O cache local do painel (`chatCache.ts`) segue
+isolado por conta e documento, não por instância, porque o próprio gate deste
+milestone trata "mesmo documento em duas máquinas" como duas app sessions
+válidas, não como um requisito de cache separado — isolar por instância
+quebraria a restauração de conversa do M4.5. Já o cache de prompt remoto do
+Gemini (`geminiContextCache.ts`, M4.5) passou a incluir `appSessionId` na
+chave: é estado de execução, não de restauração de conversa, então duas app
+sessions abertas no mesmo documento não reaproveitam mais o mesmo cache
+remoto entre si (cada uma paga o custo do próprio prefixo, sem vazar nada
+entre instâncias). `WING_CHAT_MAX_SESSIONS_PER_ACCOUNT` foi removido sem
+substituto: nenhuma rota limita mais a quantidade de sessões de chat
+simultâneas por conta, só o saldo de créditos (M4.4) limita o uso. A suíte
+encerrou com 122 testes aprovados (mais o teste de banco opt-in) e o build
+do add-in passou.
 
 Gate de saída: documentos abertos simultaneamente não compartilham estado de
 chat ou cache por engano, fechar o Word encerra ou deixa expirar apenas sua app
