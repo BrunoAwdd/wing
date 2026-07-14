@@ -38,12 +38,13 @@ export const resolveActionExecutionModel = (
   actionName === "rewrite"
     ? resolveQualityLevelModel(options?.qualityLevel)
     : resolveActionModel(
-      actionName,
-      undefined,
-      defaults.generalModel ?? Deno.env.get("GEMINI_MODEL"),
-      defaults.translationModel ?? Deno.env.get("WING_TRANSLATION_MODEL") ??
-        "gemini-2.5-flash-lite",
-    );
+        actionName,
+        undefined,
+        defaults.generalModel ?? Deno.env.get("GEMINI_MODEL"),
+        defaults.translationModel ??
+          Deno.env.get("WING_TRANSLATION_MODEL") ??
+          "gemini-3.1-flash-lite",
+      );
 
 // Helper para coletar o stream da IA
 async function collectStream(stream: AsyncGenerator<string>): Promise<string> {
@@ -83,8 +84,7 @@ export const handleStreamRequest = async (
     if (totalChars > MAX_ACTION_INPUT_CHARS) {
       ctx.response.status = 400;
       ctx.response.body = {
-        error:
-          `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
+        error: `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
       };
       return;
     }
@@ -175,9 +175,10 @@ export const handleStreamRequest = async (
       console.log("[HANDLER] 7. Entrando no bloco try para chamada de IA");
       // Pass entitlement/plan to generateTextStream if needed for model selection
       const aiStream = generateTextStream(structuredPrompt, {
-        entitlement: entitlement.plan === "pro" || entitlement.plan === "team"
-          ? "Paid"
-          : "Free",
+        entitlement:
+          entitlement.plan === "pro" || entitlement.plan === "team"
+            ? "Paid"
+            : "Free",
         model: billableModel,
         maxOutputTokens,
       });
@@ -288,17 +289,18 @@ export const handleStreamRequest = async (
 
       ctx.response.body = body;
     } catch (innerError) {
-      await billingService.settleCredits(reservation.reservationId, {
-        credits: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-      }).catch(
-        (settlementError) =>
+      await billingService
+        .settleCredits(reservation.reservationId, {
+          credits: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        })
+        .catch((settlementError) =>
           logger.error(
             { err: settlementError },
             "Falha ao liberar reserva de tokens.",
           ),
-      );
+        );
       logger.error(
         { err: innerError },
         `Erro na chamada de IA para /api/v1/${actionName}:`,

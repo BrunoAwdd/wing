@@ -23,9 +23,12 @@
 | M2 | Stripe, planos e cotas | Concluído | M1 | Wing pode cobrar e aplicar Free/Pro |
 | M3 | Chat com entitlement e histórico íntegro | Concluído | M1, M2 | Conversa segura e consistente |
 | M4 | Telemetria segura e confiável | Concluído | M1 | Métricas utilizáveis sem expor documentos |
-| M4.5 | Carteira mensal de créditos | Concluído | M2-M4 | Custo de IA controlado por conta e modelo |
-| M5 | Empacotamento e ambiente de produção | Pendente | M1-M4 | Add-in instalável fora do ambiente de dev |
+| M4.4 | Carteira mensal de créditos | Concluído | M2-M4 | Custo de IA controlado por conta e modelo |
+| M4.5 | Cache do Fale com o documento | Concluído | M3, M4.4 | Conversas contínuas com menor custo de contexto |
+| M4.6 | Sessão por instância do Word | Pendente | M1, M3, M4.5 | Documentos abertos isolados sem licença por assento |
+| M5 | Empacotamento e ambiente de produção | Pendente | M1-M4.6 | Add-in instalável fora do ambiente de dev |
 | M6 | Quality gate e piloto pago | Pendente | M1-M5 | Liberação controlada para clientes |
+| M7 | Enterprise | Futuro | M6 | Governança, múltiplas contas e controle de alterações |
 
 ## M0 - Retirada do runtime aposentado
 
@@ -147,7 +150,7 @@ do add-in passou.
 
 Gate de saída: testes tentam enviar texto e propriedades desconhecidas e comprovam que nada disso é persistido.
 
-## M4.5 - Carteira mensal de créditos
+## M4.4 - Carteira mensal de créditos
 
 Entregáveis:
 
@@ -179,6 +182,44 @@ build do add-in passou.
 Gate de saída: chamadas concorrentes não ultrapassam a cota, uma tentativa
 bloqueada não chama a IA e a liquidação repetida não duplica nem reduz consumo.
 
+## M4.5 - Cache do Fale com o documento
+
+Entregáveis:
+
+- [x] implementar cache local da conversa por documento, com restauração, TTL e limpeza manual;
+- [x] implementar cache contextual do Wing com últimas mensagens e resumo compacto do histórico;
+- [x] implementar cache de prompt em Gemini, GPT e Claude, respeitando o mecanismo de cada provedor, com hash ou prefixo estável, TTL, invalidação e métricas de economia.
+
+O prefixo estável formado por instruções e documento deve ser separado das
+perguntas e respostas variáveis. O cache é isolado por conta, documento, modelo
+e versão do prompt. Metadados podem ser persistidos, mas nenhum registro do
+Wing deve armazenar o texto jurídico usado pelo cache remoto.
+
+Gate de saída: reabrir o painel restaura a conversa, uma nova sessão reconstrói
+o contexto sem reenviar histórico ilimitado e perguntas consecutivas sobre um
+documento inalterado comprovam cache hit no provedor. Alterar documento, modelo
+ou versão do prompt invalida o cache.
+
+## M4.6 - Sessão por instância do Word
+
+Entregáveis:
+
+- [ ] criar `appSessionId` por instância aberta do Word, independente da sessão de login;
+- [ ] vincular cada app session ao documento aberto, ao chat e aos caches correspondentes;
+- [ ] implementar heartbeat, expiração e encerramento sem limitar dispositivos, pessoas ou sessões por conta;
+- [ ] remover `WING_CHAT_MAX_SESSIONS_PER_ACCOUNT` como regra comercial;
+- [ ] manter todas as app sessions debitando a mesma carteira da conta proprietária.
+
+Três documentos abertos representam três app sessions. O mesmo documento
+aberto em dois computadores representa duas app sessions. A sessão Wing segue
+responsável somente por autenticação; a app session isola a instância do Word;
+a chat session representa a conversa; e a carteira permanece única por conta.
+
+Gate de saída: documentos abertos simultaneamente não compartilham estado de
+chat ou cache por engano, fechar o Word encerra ou deixa expirar apenas sua app
+session e qualquer quantidade de instâncias autorizadas continua limitada pelo
+saldo de créditos, não por assentos ou dispositivos.
+
 ## M5 - Empacotamento e ambiente de produção
 
 Entregáveis:
@@ -206,20 +247,45 @@ Entregáveis:
 
 Gate de saída: todos os checks são bloqueantes no CI e o piloto possui responsável, métricas, suporte e rollback definidos.
 
+## M7 - Enterprise
+
+Entregáveis:
+
+- [ ] criar organizações com múltiplas contas, workspaces e membros;
+- [ ] implementar papéis `owner`, `admin` e `member` com autorização no backend;
+- [ ] criar console central para administrar membros, planos, limites, modelos e políticas;
+- [ ] permitir distribuição e acompanhamento de créditos por organização, workspace e conta;
+- [ ] registrar trilha imutável de alterações administrativas, com autor, data, valor anterior e novo valor;
+- [ ] oferecer busca, filtros e exportação do histórico de alterações;
+- [ ] garantir isolamento de dados, billing e telemetria entre organizações;
+- [ ] preparar SSO corporativo, provisionamento e revogação centralizada.
+
+O controle de alterações registra mudanças de configuração, acesso, plano,
+limites e políticas. Ele nunca registra texto de documentos, prompts ou
+respostas. Uma pessoa autorizada pode administrar múltiplas contas e
+organizações sem compartilhar sessões, documentos ou carteiras indevidamente.
+
+Gate de saída: testes de isolamento comprovam que membros de uma organização
+não acessam dados de outra, toda alteração administrativa relevante possui
+auditoria consultável e a remoção de um membro revoga seu acesso sem afetar as
+demais contas.
+
 ## 3. Ordem recomendada
 
 1. Executar M1 antes de qualquer integração de pagamento.
 2. Construir M2 sobre a sessão Wing, sem aceitar e-mail ou plano enviados pelo frontend.
 3. Fechar M3 e M4 em paralelo depois que a identidade estiver estável.
-4. Consolidar M5 somente com contratos de API definidos.
-5. Usar M6 como gate de lançamento, não como backlog posterior.
+4. Fechar M4.5 e M4.6 antes de congelar os contratos do pacote comercial.
+5. Consolidar M5 somente com contratos de API definidos.
+6. Usar M6 como gate de lançamento, não como backlog posterior.
+7. Iniciar M7 somente depois do piloto validar operação, custos e suporte.
 
 ## 4. Itens deliberadamente adiados
 
 - recuperação semântica local no Fale com o documento;
 - Visual Law e análise jurídica;
 - AppSource público;
-- planos Team e Enterprise;
+- planos Team e Enterprise, até o início do M7;
 - múltiplos provedores configuráveis pelo usuário.
 
 A recuperação local do chat é uma evolução de privacidade e custo, mas o RFC 014 permite o envio inicial do documento completo ao backend. Ela não bloqueia o primeiro piloto desde que os limites e consentimentos estejam claros.

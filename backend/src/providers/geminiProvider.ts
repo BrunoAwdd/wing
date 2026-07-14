@@ -64,8 +64,9 @@ class GeminiProvider implements AIProvider {
       entitlement?: string;
       systemInstruction?: string;
       maxOutputTokens?: number;
+      cachedContentName?: string;
     },
-  ): AsyncGenerator<string, void, unknown> {
+  ): AsyncGenerator<string, number, unknown> {
     const modelName = options?.model || GEMINI_MODEL;
     const model = this.genAI.getGenerativeModel({
       model: modelName,
@@ -73,16 +74,37 @@ class GeminiProvider implements AIProvider {
         temperature: options?.temperature ?? 0,
         maxOutputTokens: options?.maxOutputTokens,
       },
-      systemInstruction: options?.systemInstruction,
+      // M4.5: com cache de prompt (documento + instrução já armazenados no
+      // provedor), reenviar systemInstruction seria redundante — o cache é
+      // referenciado abaixo por nome em `startChat`.
+      systemInstruction: options?.cachedContentName ? undefined : options?.systemInstruction,
     });
     const chat = model.startChat({
       history: history,
+      cachedContent: options?.cachedContentName,
     });
 
     const result = await chat.sendMessageStream(prompt);
 
     for await (const chunk of result.stream) {
       yield chunk.text();
+    }
+
+    // Prova real de economia (tokens do prefixo que vieram do cache, não
+    // reprocessados) — só disponível depois que o stream inteiro é
+    // consumido. Propagado via `return` (número real, não boolean) pro
+    // chamador registrar telemetria com a economia de verdade.
+    if (!options?.cachedContentName) return 0;
+    try {
+      const finalResponse = await result.response;
+      const cachedTokens = finalResponse.usageMetadata?.cachedContentTokenCount ?? 0;
+      console.log(
+        `[GeminiProvider] cache "${options.cachedContentName}": ${cachedTokens} tokens do prefixo vieram do cache.`,
+      );
+      return cachedTokens;
+    } catch (error) {
+      console.error("[GeminiProvider] Falha ao ler usageMetadata do cache:", error);
+      return 0;
     }
   }
 

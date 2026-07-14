@@ -74,7 +74,7 @@ export class AnthropicProvider implements AIProvider {
     prompt: string,
     history: any[],
     options?: AIRequestOptions,
-  ): AsyncGenerator<string, void, unknown> {
+  ): AsyncGenerator<string, number, unknown> {
     const model = options?.model || "claude-sonnet-5";
 
     // Convert history
@@ -87,6 +87,16 @@ export class AnthropicProvider implements AIProvider {
 
     messages.push({ role: "user", content: prompt });
 
+    // M4.5: cache de prompt da Anthropic é explícito por bloco — marcar
+    // `cache_control` no bloco do system (documento + instruções, o
+    // prefixo estável) faz a Anthropic guardá-lo e reaproveitar em
+    // chamadas seguintes com o mesmo prefixo. Documentos abaixo do mínimo
+    // cacheável (~1024 tokens pro Sonnet) simplesmente não geram cache,
+    // sem erro — degrada graciosamente sozinho.
+    const system = options?.enablePromptCache && options?.systemInstruction
+      ? [{ type: "text", text: options.systemInstruction, cache_control: { type: "ephemeral" } }]
+      : options?.systemInstruction;
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -97,7 +107,7 @@ export class AnthropicProvider implements AIProvider {
       body: JSON.stringify({
         model: model,
         max_tokens: options?.maxOutputTokens ?? 4096,
-        system: options?.systemInstruction,
+        system,
         messages: messages,
         temperature: options?.temperature ?? 0.7,
         stream: true,
@@ -114,6 +124,7 @@ export class AnthropicProvider implements AIProvider {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let cacheReadTokens = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -132,12 +143,20 @@ export class AnthropicProvider implements AIProvider {
             if (data.type === "content_block_delta" && data.delta?.text) {
               yield data.delta.text;
             }
+            if (data.type === "message_start" && data.message?.usage) {
+              cacheReadTokens = data.message.usage.cache_read_input_tokens ?? 0;
+            }
           } catch (e) {
             console.error("Error parsing Anthropic chunk", e);
           }
         }
       }
     }
+
+    if (options?.enablePromptCache) {
+      console.log(`[AnthropicProvider] ${cacheReadTokens} tokens do prefixo vieram do cache.`);
+    }
+    return cacheReadTokens;
   }
 
   async generateStructuredContent(

@@ -15,6 +15,7 @@ export { createClient } from "jsr:@supabase/supabase-js@2";
 
 // Using npm modules in Deno
 export { GoogleGenerativeAI } from "npm:@google/generative-ai@0.24.1";
+export { GoogleAICacheManager } from "npm:@google/generative-ai@0.24.1/server";
 export { default as Stripe } from "npm:stripe@17";
 
 export { log };

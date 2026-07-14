@@ -3,26 +3,32 @@ import { resolveActionExecutionModel } from "./requestHandler.ts";
 
 const defaults = {
   generalModel: "gemini-flash-3.5",
-  translationModel: "gemini-2.5-flash-lite",
+  translationModel: "gemini-3.1-flash-lite",
 };
 
-Deno.test("Quick Model: /fix ignora modelo arbitrário enviado pelo cliente", () => {
-  assertEquals(
-    resolveActionExecutionModel("fix", { model: "claude-fable" }, defaults),
-    "gemini-flash-3.5",
-  );
-});
+Deno.test(
+  "Quick Model: /fix ignora modelo arbitrário enviado pelo cliente",
+  () => {
+    assertEquals(
+      resolveActionExecutionModel("fix", { model: "claude-fable" }, defaults),
+      "gemini-flash-3.5",
+    );
+  },
+);
 
-Deno.test("Quick Model: /summarize ignora modelo arbitrário enviado pelo cliente", () => {
-  assertEquals(
-    resolveActionExecutionModel(
-      "summarize",
-      { model: "claude-opus-4.8" },
-      defaults,
-    ),
-    "gemini-flash-3.5",
-  );
-});
+Deno.test(
+  "Quick Model: /summarize ignora modelo arbitrário enviado pelo cliente",
+  () => {
+    assertEquals(
+      resolveActionExecutionModel(
+        "summarize",
+        { model: "claude-opus-4.8" },
+        defaults,
+      ),
+      "gemini-flash-3.5",
+    );
+  },
+);
 
 Deno.test("Quick Model: tradução e reescrita só usam rotas autorizadas", () => {
   assertEquals(
@@ -31,7 +37,7 @@ Deno.test("Quick Model: tradução e reescrita só usam rotas autorizadas", () =
       { model: "claude-fable" },
       defaults,
     ),
-    "gemini-2.5-flash-lite",
+    "gemini-3.1-flash-lite",
   );
   assertEquals(
     resolveActionExecutionModel(

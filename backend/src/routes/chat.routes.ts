@@ -17,6 +17,8 @@ import {
   isSelectableQualityLevel,
   resolveQualityLevelModel,
 } from "../services/qualityLevels.ts";
+import { compactHistory, DEFAULT_CONTEXT_WINDOW_ENTRIES } from "../services/chatContextCache.ts";
+import { geminiContextCache } from "../services/geminiContextCache.ts";
 
 export interface ChatHistoryEntry {
   role: "user" | "model";
@@ -27,11 +29,19 @@ interface ChatSession {
   accountId: string;
   createdAt: number;
   expiresAt: number;
+  // Separado do histórico conversacional (M4.5): é o prefixo estável
+  // (instruções + documento) que vira `systemInstruction`/cache de prompt
+  // no provedor, em vez de ocupar as duas primeiras entradas de `history`
+  // repetidas a cada turno.
+  documentText: string;
   history: ChatHistoryEntry[];
   inFlight: boolean;
   messageCount: number;
   timeoutId: number;
 }
+
+const buildDocumentSystemInstruction = (documentText: string): string =>
+  `Você é um assistente especialista neste documento. Analise o conteúdo a seguir e responda perguntas sobre ele. O documento é:\n\n---\n${documentText}\n---`;
 
 export interface ChatLimits {
   maxDocumentChars: number;
@@ -52,6 +62,7 @@ export interface ChatRouteDependencies {
   scheduleExpiration: (callback: () => void, delay: number) => number;
   cancelExpiration: (timeoutId: number) => void;
   trackEvent: typeof track;
+  getCachedContent: typeof geminiContextCache.getOrCreate;
 }
 
 const positiveInteger = (name: string, fallback: number): number => {
@@ -85,6 +96,7 @@ const defaultDependencies: ChatRouteDependencies = {
   },
   cancelExpiration: clearTimeout,
   trackEvent: track,
+  getCachedContent: geminiContextCache.getOrCreate,
 };
 
 const readJson = async (
@@ -101,6 +113,32 @@ const readJson = async (
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
+
+// M4.5: reabrir o painel restaura a conversa no cliente (localStorage), mas
+// a sessão de backend em si é efêmera — reconectar sem isto perdia todo o
+// contexto de perguntas anteriores. Aceita um histórico prévio (opcional,
+// vindo do cache local do cliente), mas sempre compacta pro mesmo limite de
+// janela usado durante a conversa — nunca "reenvia histórico ilimitado"
+// (gate de saída do M4.5), mesmo que o cliente mande uma conversa longa.
+const MAX_PRIOR_MESSAGES_ACCEPTED = 200;
+
+const sanitizePriorMessages = (
+  value: unknown,
+  maxMessageChars: number,
+): ChatHistoryEntry[] => {
+  if (!Array.isArray(value)) return [];
+
+  const sanitized: ChatHistoryEntry[] = [];
+  for (const raw of value.slice(0, MAX_PRIOR_MESSAGES_ACCEPTED)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const role = (raw as { role?: unknown }).role;
+    const text = (raw as { parts?: Array<{ text?: unknown }> }).parts?.[0]?.text;
+    if (role !== "user" && role !== "model") continue;
+    if (typeof text !== "string" || text.trim().length === 0) continue;
+    sanitized.push({ role, parts: [{ text: text.slice(0, maxMessageChars) }] });
+  }
+  return sanitized;
+};
 
 export const createChatRouter = (
   dependencies: ChatRouteDependencies = defaultDependencies,
@@ -125,7 +163,7 @@ export const createChatRouter = (
     const body = await readJson(ctx);
     if (!body) return;
 
-    const { documentText } = body;
+    const { documentText, priorMessages } = body;
     if (!isNonEmptyString(documentText)) {
       ctx.response.status = 400;
       ctx.response.body = { error: "documentText é obrigatório." };
@@ -165,6 +203,18 @@ export const createChatRouter = (
       return;
     }
 
+    // Reconstrói o contexto de uma conversa restaurada (cache local do
+    // cliente) sem "reenviar histórico ilimitado" — sempre compactado pra
+    // janela padrão, mesmo se o cliente mandar uma conversa longa.
+    const contextWindowEntries = positiveInteger(
+      "WING_CHAT_CONTEXT_WINDOW",
+      DEFAULT_CONTEXT_WINDOW_ENTRIES,
+    );
+    const seededHistory = compactHistory(
+      sanitizePriorMessages(priorMessages, limits.maxMessageChars),
+      contextWindowEntries,
+    );
+
     const now = dependencies.now();
     const sessionId = dependencies.randomUUID();
     const timeoutId = dependencies.scheduleExpiration(() => {
@@ -174,22 +224,8 @@ export const createChatRouter = (
       accountId: auth.accountId,
       createdAt: now,
       expiresAt: now + limits.sessionTtlMs,
-      history: [
-        {
-          role: "user",
-          parts: [{
-            text:
-              `Você é um assistente especialista neste documento. Analise o conteúdo a seguir e prepare-se para responder perguntas sobre ele. O documento é:\n\n---\n${documentText}\n---`,
-          }],
-        },
-        {
-          role: "model",
-          parts: [{
-            text:
-              "Entendido. Analisei o documento e estou pronto para responder suas perguntas.",
-          }],
-        },
-      ],
+      documentText,
+      history: seededHistory,
       inFlight: false,
       messageCount: 0,
       timeoutId,
@@ -270,6 +306,21 @@ export const createChatRouter = (
     let maxOutputTokens = 0;
     let billableModel = resolveBillableModel(Deno.env.get("GEMINI_MODEL"));
     const historyBeforeMessage = session.history.slice();
+    // M4.5: só os últimos N turnos brutos + um resumo compacto do resto vão
+    // pro provedor — sem isso, cada mensagem reenviava a conversa inteira,
+    // inflando custo/latência sem contexto proporcional. A cobrança usa o
+    // MESMO histórico compactado que é enviado de fato (senão a reserva de
+    // crédito cobraria por um contexto maior do que o realmente transmitido).
+    const contextWindowEntries = positiveInteger(
+      "WING_CHAT_CONTEXT_WINDOW",
+      DEFAULT_CONTEXT_WINDOW_ENTRIES,
+    );
+    const compactedHistory = compactHistory(historyBeforeMessage, contextWindowEntries);
+    const systemInstruction = buildDocumentSystemInstruction(session.documentText);
+    let cachedContentName: string | undefined;
+    let enablePromptCache = false;
+    let promptCacheAttempted = false;
+    let promptCacheProvider: "gemini" | "openai" | "anthropic" | undefined;
     try {
       if (await dependencies.isAccountRevoked(auth.accountId)) {
         ctx.response.status = 403;
@@ -302,6 +353,39 @@ export const createChatRouter = (
       }
       billableModel = resolveQualityLevelModel(qualityLevel);
 
+      // M4.5: cache de prompt no provedor pro prefixo estável (documento).
+      // Os níveis de qualidade selecionáveis hoje resolvem sempre pra
+      // GPT/Claude (nunca Gemini) — por isso o cache precisa cobrir os três
+      // mecanismos, não só o do Gemini (que ficaria morto/inalcançável via
+      // chat). Gemini usa cache explícito (GoogleAICacheManager, precisa
+      // criar/referenciar por nome); OpenAI e Anthropic cacheiam de forma
+      // implícita no próprio provedor — só pedimos pra habilitar e o hit
+      // real só é conhecido depois que o stream inteiro é consumido (por
+      // isso a telemetria é registrada só depois, não aqui).
+      if (billableModel.startsWith("gemini")) {
+        promptCacheAttempted = true;
+        promptCacheProvider = "gemini";
+        const cacheEntry = await dependencies.getCachedContent({
+          accountId: auth.accountId,
+          documentText: session.documentText,
+          model: billableModel,
+          systemInstruction,
+          ttlSeconds: positiveInteger("WING_CHAT_PROMPT_CACHE_TTL_SECONDS", 3_600),
+        }).catch((error) => {
+          logger.error({ err: error }, "Falha ao obter cache de prompt do chat.");
+          return null;
+        });
+        cachedContentName = cacheEntry?.name;
+      } else if (billableModel.startsWith("claude")) {
+        promptCacheAttempted = true;
+        promptCacheProvider = "anthropic";
+        enablePromptCache = true;
+      } else if (billableModel.startsWith("gpt")) {
+        promptCacheAttempted = true;
+        promptCacheProvider = "openai";
+        enablePromptCache = true;
+      }
+
       const freeMonthlyLimit = positiveInteger(
         "WING_FREE_MONTHLY_CREDITS",
         1_000,
@@ -312,7 +396,7 @@ export const createChatRouter = (
       );
       const reservedCharge = estimateChatCharge(
         message,
-        historyBeforeMessage,
+        [{ parts: [{ text: systemInstruction }] }, ...compactedHistory],
         billableModel,
         maxOutputTokens,
       );
@@ -344,13 +428,20 @@ export const createChatRouter = (
     try {
       stream = dependencies.generateStream(
         trimmedMessage,
-        historyBeforeMessage,
+        compactedHistory,
         // `model: billableModel` é o que garante que o modelo executado é o
         // mesmo que foi reservado/cobrado acima — sem isso, a reserva de
         // crédito usa o nível escolhido mas a chamada de IA de fato caía
         // sempre no provedor padrão (Gemini), desalinhando execução e
         // cobrança quando o nível resolvia pra outro provedor.
-        { entitlement: entitlement.plan, maxOutputTokens, model: billableModel },
+        {
+          entitlement: entitlement.plan,
+          maxOutputTokens,
+          model: billableModel,
+          systemInstruction,
+          cachedContentName,
+          enablePromptCache,
+        },
       );
     } catch (error) {
       await dependencies.settleCredits(reservationId, {
@@ -373,9 +464,29 @@ export const createChatRouter = (
     ctx.response.body = (async function* () {
       let completeResponse = "";
       try {
-        for await (const chunk of stream) {
-          completeResponse += chunk;
-          yield chunk;
+        // Iteração manual (não `for await...of`) pra capturar o valor de
+        // `return` do generator — é só ali, depois do stream inteiro
+        // consumido, que dá pra saber quantos tokens do prefixo vieram do
+        // cache de verdade (não apenas "um cache existe/foi criado").
+        let cachedTokens = 0;
+        let next = await stream.next();
+        while (!next.done) {
+          completeResponse += next.value;
+          yield next.value;
+          next = await stream.next();
+        }
+        cachedTokens = typeof next.value === "number" ? next.value : 0;
+
+        if (promptCacheAttempted && promptCacheProvider) {
+          dependencies.trackEvent(
+            "chat_context_cache_used",
+            {
+              cached: cachedTokens > 0 ? 1 : 0,
+              cached_tokens: cachedTokens,
+              provider: promptCacheProvider,
+            },
+            session.accountId,
+          );
         }
 
         session.history.push({
@@ -403,9 +514,12 @@ export const createChatRouter = (
         throw error;
       } finally {
         if (reservationId) {
+          // Mesma base da reserva (systemInstruction + histórico compactado)
+          // — senão a liquidação "true-up" comparado a uma estimativa de
+          // entrada diferente da que foi de fato reservada/enviada.
           const actualCharge = estimateChatCharge(
             trimmedMessage,
-            historyBeforeMessage,
+            [{ parts: [{ text: systemInstruction }] }, ...compactedHistory],
             billableModel,
             estimateTokens(completeResponse),
           );

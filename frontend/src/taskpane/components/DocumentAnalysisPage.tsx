@@ -93,6 +93,7 @@ interface DocumentAnalysisPageProps {
   isOnline: boolean;
   sessionToken: string | null;
   qualityLevel: string;
+  accountEmail: string;
 }
 
 const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
@@ -101,10 +102,11 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
   isOnline,
   sessionToken,
   qualityLevel,
+  accountEmail,
 }) => {
   const styles = useStyles();
-  const { messages, isLoading, error, startAnalysis, sendMessage, isSessionStarted } =
-    useDocumentChat({ isOnline, sessionToken, qualityLevel });
+  const { messages, isLoading, error, startAnalysis, sendMessage, clearConversation, hasConversation } =
+    useDocumentChat({ isOnline, sessionToken, qualityLevel, accountEmail });
   const [currentMessage, setCurrentMessage] = useState("");
   const messageEndRef = useRef<null | HTMLDivElement>(null);
 
@@ -129,10 +131,20 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
       <div className={styles.header}>
         <Button icon={<ArrowLeft24Regular />} appearance="transparent" onClick={onBack} />
         <Text className={styles.headerTitle}>Análise de Documento</Text>
+        {hasConversation && (
+          <Button
+            appearance="subtle"
+            size="small"
+            style={{ marginLeft: "auto" }}
+            onClick={clearConversation}
+          >
+            Limpar conversa
+          </Button>
+        )}
       </div>
 
       <div className={styles.chatContainer}>
-        {!isSessionStarted ? (
+        {!hasConversation ? (
           <div className={styles.centeredContainer}>
             {isLoading ? (
               <>
@@ -179,7 +191,7 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
         {error && <div className={styles.errorText}>{error}</div>}
       </div>
 
-      {isSessionStarted && (
+      {hasConversation && (
         <div className={styles.inputContainer}>
           <Input
             className={styles.input}

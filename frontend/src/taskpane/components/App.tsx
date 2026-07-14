@@ -288,6 +288,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         isOnline={isOnline}
         sessionToken={sessionToken}
         qualityLevel={qualityLevel}
+        accountEmail={sessionUser.email}
       />
     );
   }
