@@ -17,6 +17,7 @@ import {
   History24Regular,
   ArrowSyncCheckmark24Regular,
   ChevronDown16Regular,
+  DocumentOnePage24Regular,
 } from "@fluentui/react-icons";
 
 const useStyles = makeStyles({
@@ -24,7 +25,7 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "column",
     ...shorthands.gap("8px"),
-    ...shorthands.padding("0px", "16px", "16px", "16px"), // Adicionado padding para separar da parte de baixo
+    ...shorthands.padding("0px", "16px", "16px", "16px"),
   },
   // RFC 014 §4: as quatro ações principais do produto — Revisar, Traduzir,
   // Resumir, Fale com o documento. Ficam em destaque (appearance="primary").
@@ -55,12 +56,16 @@ interface CommandConsoleProps {
   command: string;
   onCommandChange: (newCommand: string) => void;
   onCommandSend: () => void;
-  onPresetSelect: (presetCommand: string) => void;
+  onPresetSelect: (
+    presetCommand: string,
+    translationPlacement?: "replace" | "before" | "after"
+  ) => void;
   onShowSettings: () => void;
   onStartAnalysis: () => void; // "Fale com o documento" (RFC 014 §4)
   onShowHistory: () => void;
   onShowLastUpdates: () => void;
   onSyncMemory: () => void;
+  onSelectAll: () => void;
   // Undefined quando a feature está desligada (RFC 013) — o botão nem
   // renderiza, em vez de renderizar desabilitado.
   onShowLegalAnalysis?: () => void;
@@ -77,6 +82,7 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
   onShowHistory,
   onShowLastUpdates,
   onSyncMemory,
+  onSelectAll,
   onShowLegalAnalysis,
   onShowDocumentDesign,
 }) => {
@@ -98,9 +104,26 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
             </MenuList>
           </MenuPopover>
         </Menu>
-        <Button appearance="primary" onClick={() => onPresetSelect("translate")}>
-          Traduzir
-        </Button>
+        <Menu>
+          <MenuTrigger disableButtonEnhancement>
+            <Button appearance="primary" icon={<ChevronDown16Regular />} iconPosition="after">
+              Traduzir
+            </Button>
+          </MenuTrigger>
+          <MenuPopover>
+            <MenuList>
+              <MenuItem onClick={() => onPresetSelect("translate", "replace")}>
+                Substituir original
+              </MenuItem>
+              <MenuItem onClick={() => onPresetSelect("translate", "before")}>
+                Inserir antes
+              </MenuItem>
+              <MenuItem onClick={() => onPresetSelect("translate", "after")}>
+                Inserir depois
+              </MenuItem>
+            </MenuList>
+          </MenuPopover>
+        </Menu>
         <Button appearance="primary" onClick={() => onPresetSelect("summarize")}>
           Resumir
         </Button>
@@ -110,6 +133,9 @@ const CommandConsole: React.FC<CommandConsoleProps> = ({
       </div>
 
       <div className={styles.supportContainer}>
+        <Button appearance="subtle" icon={<DocumentOnePage24Regular />} onClick={onSelectAll}>
+          Selecionar tudo
+        </Button>
         <Button appearance="subtle" icon={<ArrowSyncCheckmark24Regular />} onClick={onSyncMemory}>
           Atualizar memória do documento
         </Button>

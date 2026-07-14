@@ -23,7 +23,7 @@ import LegalAnalysisPage from "./LegalAnalysisPage";
 import DocumentDesignPage from "./DocumentDesignPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
-import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
+import { useWordInteraction, Paragraph, TranslationPlacement } from "../hooks/useWordInteraction";
 import LastUpdatesPage from "./LastUpdatesPage";
 import { useAIApi } from "../hooks/useAIApi";
 import { documentObserver } from "../../services/documentObserver";
@@ -95,6 +95,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const [language, setLanguage] = useState("inglês");
   // QUICK_MODEL_ROUTING_PLAN Entrega 3: "usar Equilibrado como padrão".
   const [qualityLevel, setQualityLevel] = useState("equilibrado");
+  const [translationPlacement, setTranslationPlacement] = useState<TranslationPlacement>("replace");
 
   const addLog = useCallback((message: string, type: LogEntry["type"]) => {
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -127,8 +128,10 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   } = useAppSetup({ addLog, showFluentToast });
   const {
     originalText,
+    selectAllDocument,
     acceptSingleSuggestion,
     acceptMultipleSuggestions,
+    applyTranslatedSuggestions,
     insertAtCursor,
     insertHtmlAtCursor,
     highlightClauses,
@@ -182,7 +185,11 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
       .filter((s) => s !== null);
 
     if (suggestionsToApply.length > 0) {
-      await acceptMultipleSuggestions(suggestionsToApply);
+      if (lastCommand === "translate") {
+        await applyTranslatedSuggestions(suggestionsToApply, translationPlacement);
+      } else {
+        await acceptMultipleSuggestions(suggestionsToApply);
+      }
     }
 
     setSuggestedText([]);
@@ -205,7 +212,14 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     if (originalIndex === -1) return;
 
     track("suggestion_accepted_single", { command: lastCommand }, sessionToken);
-    await acceptSingleSuggestion(originalIndex, suggestion.text);
+    if (lastCommand === "translate") {
+      await applyTranslatedSuggestions(
+        [{ index: originalIndex, text: suggestion.text }],
+        translationPlacement
+      );
+    } else {
+      await acceptSingleSuggestion(originalIndex, suggestion.text);
+    }
     setSuggestedText((prev) => prev.filter((s) => s.id !== id));
   };
 
@@ -222,16 +236,19 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setShowRating(false);
   };
 
-  const handlePresetSelect = (presetCommand: string) => {
+  const handlePresetSelect = (
+    presetCommand: string,
+    selectedTranslationPlacement?: TranslationPlacement
+  ) => {
+    if (presetCommand === "translate" && selectedTranslationPlacement) {
+      setTranslationPlacement(selectedTranslationPlacement);
+    }
     setCommand(presetCommand);
     fetchSuggestion(presetCommand);
   };
 
   // Renderização
-  if (
-    !MICROSOFT_SSO_ENABLED &&
-    (authStatus === "needs_login" || authStatus === "loading")
-  ) {
+  if (!MICROSOFT_SSO_ENABLED && (authStatus === "needs_login" || authStatus === "loading")) {
     return (
       <MagicLinkLoginPage
         isLoading={authStatus === "loading"}
@@ -375,13 +392,16 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onShowHistory={() => setView("history")}
           onShowLastUpdates={() => setView("lastUpdates")}
           onShowLegalAnalysis={LEGAL_ANALYSIS_ENABLED ? () => setView("legalAnalysis") : undefined}
-          onShowDocumentDesign={DOCUMENT_DESIGN_ENABLED ? () => setView("documentDesign") : undefined}
+          onShowDocumentDesign={
+            DOCUMENT_DESIGN_ENABLED ? () => setView("documentDesign") : undefined
+          }
           onSyncMemory={async () => {
             addLog("Sincronizando memória...", "info");
             await documentObserver.syncDocument();
             track("memory_sync_completed", undefined, sessionToken);
             addLog("Memória sincronizada.", "success");
           }}
+          onSelectAll={selectAllDocument}
         />
       </div>
     </div>
