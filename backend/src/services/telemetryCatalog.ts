@@ -33,6 +33,10 @@ const planRule: StringRule = {
   values: ["free", "pro", "team", "enterprise"],
 };
 const countRule: IntegerRule = { type: "integer", min: 0, max: 10_000_000 };
+const cacheProviderRule: StringRule = {
+  type: "string",
+  values: ["gemini", "openai", "anthropic"],
+};
 
 export const TELEMETRY_CATALOG = {
   panel_opened: { source: "client", properties: {} },
@@ -147,6 +151,16 @@ export const TELEMETRY_CATALOG = {
   chat_message_interrupted: {
     source: "server",
     properties: { session_message_count: countRule },
+  },
+  // M4.5: métrica de economia real do cache de prompt no provedor (prefixo
+  // estável de instruções + documento). "cached" é 1 quando cached_tokens
+  // > 0; "cached_tokens" é a contagem real reportada pelo provedor (não um
+  // boolean disfarçado) — precisa disso pra medir economia de verdade, não
+  // só "teve cache: sim/não". "provider" permite quebrar a métrica por
+  // mecanismo (Gemini explícito, OpenAI/Anthropic implícitos).
+  chat_context_cache_used: {
+    source: "server",
+    properties: { cached: countRule, cached_tokens: countRule, provider: cacheProviderRule },
   },
 } as const satisfies Record<string, EventDefinition>;
 

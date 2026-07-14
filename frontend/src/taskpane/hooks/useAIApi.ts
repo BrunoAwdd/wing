@@ -4,6 +4,7 @@ import { LogEntry } from "../components/StatusBar";
 import * as cache from "../services/suggestionCache";
 import { Paragraph } from "./useWordInteraction";
 import { addOrUpdateChange } from "../services/pendingChangesCache";
+import { estimateCredits, getBillingStatus } from "../services/billingService";
 
 interface AIApiProps {
   sessionToken: string | null;
@@ -11,6 +12,7 @@ interface AIApiProps {
   originalText: Paragraph[];
   tone: string;
   language: string;
+  qualityLevel: string;
   addLog: (message: string, type: LogEntry["type"]) => void;
   showFluentToast: (message: string, type: "info" | "success" | "error") => void;
   setShowRating: (show: boolean) => void;
@@ -24,6 +26,7 @@ export const useAIApi = ({
   originalText,
   tone,
   language,
+  qualityLevel,
   addLog,
   showFluentToast,
   setShowRating,
@@ -62,6 +65,37 @@ export const useAIApi = ({
       return;
     }
 
+    // QUICK_MODEL_ROUTING_PLAN Entrega 3: só "rewrite" aceita nível de
+    // qualidade; e só em "Profundo" vale a pena pagar o custo de uma
+    // chamada extra pra mostrar estimativa/checar saldo antes de executar.
+    const isRewrite = commandToExecute.toLowerCase() === "rewrite";
+    if (isRewrite && qualityLevel === "profundo") {
+      try {
+        const [estimatedCredits, billingStatus] = await Promise.all([
+          estimateCredits(sessionToken, originalText, qualityLevel, tone),
+          getBillingStatus(sessionToken),
+        ]);
+
+        if (billingStatus.usage.creditLimit !== null) {
+          const remaining = billingStatus.usage.creditLimit - billingStatus.usage.creditsUsed;
+          if (estimatedCredits > remaining) {
+            showFluentToast(
+              `Saldo insuficiente para o nível Profundo (estimativa: ${estimatedCredits} créditos, restam ${Math.max(remaining, 0)}). Assine o Wing Pro ou reduza o nível de qualidade.`,
+              "error"
+            );
+            return;
+          }
+        }
+
+        addLog(`Estimativa: ${estimatedCredits} créditos (nível Profundo).`, "info");
+      } catch (error) {
+        // Estimativa é um auxílio de UX, não um gate de segurança — a cota
+        // real já é aplicada no backend antes da chamada de IA (RFC 015
+        // §11). Se a estimativa falhar, deixa a execução seguir normalmente.
+        console.error("Falha ao estimar créditos:", error);
+      }
+    }
+
     setIsLoading(true); // Ativa o loading
     setLastCommand(commandToExecute);
     addLog(`Enviando comando: "${commandToExecute}"`, "info");
@@ -74,7 +108,7 @@ export const useAIApi = ({
         },
         body: JSON.stringify({
           text: originalText,
-          options: { tone, language },
+          options: isRewrite ? { tone, language, qualityLevel } : { tone, language },
         }),
       });
 
@@ -140,7 +174,13 @@ export const useAIApi = ({
         { command: commandToExecute.toLowerCase(), error_code: errorCode },
         sessionToken
       );
-      showFluentToast("Erro ao obter sugestão. Verifique o console.", "error");
+      // Erros com mensagem específica do backend (ex: cota excedida, nível
+      // Profundo exige Pro) são mais úteis pro usuário que um texto genérico.
+      const errorMessage =
+        errorCode === "backend_request_failed" && error instanceof Error && error.message
+          ? error.message
+          : "Erro ao obter sugestão. Verifique o console.";
+      showFluentToast(errorMessage, "error");
       setSuggestedText([]);
       setIsSuggestionAvailable(false);
     } finally {

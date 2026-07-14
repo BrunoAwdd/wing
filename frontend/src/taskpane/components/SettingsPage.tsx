@@ -55,8 +55,10 @@ const useStyles = makeStyles({
 interface SettingsPageProps {
   tone: string;
   language: string;
+  qualityLevel: string;
   onToneChange: (tone: string) => void;
   onLanguageChange: (language: string) => void;
+  onQualityLevelChange: (qualityLevel: string) => void;
   onBack: () => void;
   user: WingSessionUser;
   onSignOut: () => void;
@@ -66,8 +68,10 @@ interface SettingsPageProps {
 const SettingsPage: React.FC<SettingsPageProps> = ({
   tone,
   language,
+  qualityLevel,
   onToneChange,
   onLanguageChange,
+  onQualityLevelChange,
   onBack,
   user,
   onSignOut,
@@ -149,6 +153,19 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
 
         <div className={styles.field}>
+          <Label id="quality-level-radiogroup-label">Nível de Qualidade (Reescrita)</Label>
+          <RadioGroup
+            value={qualityLevel}
+            onChange={(_, data) => onQualityLevelChange(data.value as string)}
+            aria-labelledby="quality-level-radiogroup-label"
+          >
+            <Radio value="rapido" label="Rápido" />
+            <Radio value="equilibrado" label="Equilibrado" />
+            <Radio value="profundo" label="Profundo" />
+          </RadioGroup>
+        </div>
+
+        <div className={styles.field}>
           <Label>Conta Wing</Label>
           <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
             <Text>{user.displayName || user.email}</Text>
@@ -162,7 +179,10 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
             </Text>
             {billingStatus && (
               <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                Uso este mês: {billingStatus.usage.requestsCount}/{billingStatus.usage.limit}
+                Créditos: {billingStatus.usage.creditsUsed.toLocaleString("pt-BR")}
+                {billingStatus.usage.creditLimit !== null
+                  ? ` de ${billingStatus.usage.creditLimit.toLocaleString("pt-BR")}`
+                  : " usados"}
               </Text>
             )}
           </div>

@@ -188,6 +188,53 @@ export const billingService = {
   },
 
   // --- Usage ---
+  reserveCredits: async (
+    accountId: string,
+    model: string,
+    credits: number,
+    limit: number | null,
+  ): Promise<
+    { reservationId: string; creditsUsed: number; allowed: boolean }
+  > => {
+    const now = new Date();
+    const yyyymm = Number(
+      `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`,
+    );
+    const reservationId = crypto.randomUUID();
+    const { data, error } = await supabase.rpc("reserve_usage_credits", {
+      p_reservation_id: reservationId,
+      p_account_id: accountId,
+      p_yyyymm: yyyymm,
+      p_model: model,
+      p_credits: credits,
+      p_limit: limit,
+    });
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      credits_used: number;
+      allowed: boolean;
+    };
+    return {
+      reservationId,
+      creditsUsed: Number(row.credits_used),
+      allowed: row.allowed,
+    };
+  },
+
+  settleCredits: async (
+    reservationId: string,
+    charge: { credits: number; inputTokens: number; outputTokens: number },
+  ): Promise<number> => {
+    const { data, error } = await supabase.rpc("settle_usage_credits", {
+      p_reservation_id: reservationId,
+      p_actual_credits: charge.credits,
+      p_input_tokens: charge.inputTokens,
+      p_output_tokens: charge.outputTokens,
+    });
+    if (error) throw error;
+    return Number(data);
+  },
+
   // Incremento atômico via função SQL (RPC) — evita a condição de corrida de
   // um read-then-write em JS quando duas chamadas concorrem no mesmo mês.
   // `limit` é null pra planos pagos (sem teto); quando informado, a função só

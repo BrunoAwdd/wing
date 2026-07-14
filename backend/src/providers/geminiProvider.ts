@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from "../deps.ts";
 import { AIProvider } from "./providerInterface.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
+const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-flash-3.5";
 
 class GeminiProvider implements AIProvider {
   private readonly genAI: GoogleGenerativeAI;
@@ -23,26 +23,29 @@ class GeminiProvider implements AIProvider {
       temperature?: number;
       entitlement?: string;
       systemInstruction?: string;
-    }
+      maxOutputTokens?: number;
+    },
   ): AsyncGenerator<string, void, unknown> {
     // Seleciona o modelo com base no nível da licença ou opção explícita
     let modelName = this.model;
 
     if (options?.model) {
       modelName = options.model;
-    } else if (options?.entitlement === "Paid") {
-      modelName = "gemini-2.5-flash";
     }
 
     const model = this.genAI.getGenerativeModel({
       model: modelName,
-      generationConfig: { temperature: options?.temperature ?? 0 },
+      generationConfig: {
+        temperature: options?.temperature ?? 0,
+        maxOutputTokens: options?.maxOutputTokens,
+      },
       systemInstruction: options?.systemInstruction,
     });
 
     console.log(
-      `Usando modelo: ${modelName} para o nível de acesso: ${options?.entitlement ?? "Unknown"
-      }`
+      `Usando modelo: ${modelName} para o nível de acesso: ${
+        options?.entitlement ?? "Unknown"
+      }`,
     ); // Log para depuração
 
     const result = await model.generateContentStream(prompt);
@@ -60,22 +63,48 @@ class GeminiProvider implements AIProvider {
       temperature?: number;
       entitlement?: string;
       systemInstruction?: string;
-    }
-  ): AsyncGenerator<string, void, unknown> {
+      maxOutputTokens?: number;
+      cachedContentName?: string;
+    },
+  ): AsyncGenerator<string, number, unknown> {
     const modelName = options?.model || GEMINI_MODEL;
     const model = this.genAI.getGenerativeModel({
       model: modelName,
-      generationConfig: { temperature: options?.temperature ?? 0 },
-      systemInstruction: options?.systemInstruction,
+      generationConfig: {
+        temperature: options?.temperature ?? 0,
+        maxOutputTokens: options?.maxOutputTokens,
+      },
+      // M4.5: com cache de prompt (documento + instrução já armazenados no
+      // provedor), reenviar systemInstruction seria redundante — o cache é
+      // referenciado abaixo por nome em `startChat`.
+      systemInstruction: options?.cachedContentName ? undefined : options?.systemInstruction,
     });
     const chat = model.startChat({
       history: history,
+      cachedContent: options?.cachedContentName,
     });
 
     const result = await chat.sendMessageStream(prompt);
 
     for await (const chunk of result.stream) {
       yield chunk.text();
+    }
+
+    // Prova real de economia (tokens do prefixo que vieram do cache, não
+    // reprocessados) — só disponível depois que o stream inteiro é
+    // consumido. Propagado via `return` (número real, não boolean) pro
+    // chamador registrar telemetria com a economia de verdade.
+    if (!options?.cachedContentName) return 0;
+    try {
+      const finalResponse = await result.response;
+      const cachedTokens = finalResponse.usageMetadata?.cachedContentTokenCount ?? 0;
+      console.log(
+        `[GeminiProvider] cache "${options.cachedContentName}": ${cachedTokens} tokens do prefixo vieram do cache.`,
+      );
+      return cachedTokens;
+    } catch (error) {
+      console.error("[GeminiProvider] Falha ao ler usageMetadata do cache:", error);
+      return 0;
     }
   }
 
@@ -87,13 +116,15 @@ class GeminiProvider implements AIProvider {
       temperature?: number;
       entitlement?: string;
       systemInstruction?: string;
-    }
+      maxOutputTokens?: number;
+    },
   ): Promise<string> {
     const modelName = options?.model || this.model;
     const model = this.genAI.getGenerativeModel({
       model: modelName,
       generationConfig: {
         temperature: options?.temperature ?? 0,
+        maxOutputTokens: options?.maxOutputTokens,
         responseMimeType: "application/json",
         responseSchema: schema as any,
       },

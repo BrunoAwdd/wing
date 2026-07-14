@@ -7,7 +7,9 @@ export interface WingBillingStatus {
   status: string;
   usage: {
     requestsCount: number;
-    limit: number;
+    tokensUsed: number;
+    creditsUsed: number;
+    creditLimit: number | null;
   };
 }
 
@@ -74,4 +76,38 @@ export const openBillingPortal = async (sessionToken: string): Promise<string> =
 
   const { url } = (await response.json()) as { url: string };
   return url;
+};
+
+// O backend calcula o custo em créditos — o painel nunca sabe qual modelo
+// real está por trás do nível de qualidade escolhido.
+export interface EstimateParagraph {
+  id: string;
+  text: string;
+}
+
+// Manda os mesmos parágrafos (e o mesmo tom) que a execução real do rewrite
+// vai usar — o backend monta o prompt estruturado idêntico ao da cobrança
+// de verdade, senão a estimativa fica sistematicamente menor que a reserva
+// real (o wrapper de instruções não entrava na conta).
+export const estimateCredits = async (
+  sessionToken: string,
+  paragraphs: EstimateParagraph[],
+  qualityLevel: string,
+  tone?: string
+): Promise<number> => {
+  const response = await fetchBackend(`${BACKEND_URL}/api/v1/billing/estimate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    body: JSON.stringify({ paragraphs, qualityLevel, tone }),
+  });
+
+  if (!response.ok) {
+    throw new WingBillingError(await readError(response));
+  }
+
+  const { credits } = (await response.json()) as { credits: number };
+  return credits;
 };

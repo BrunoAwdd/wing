@@ -6,16 +6,16 @@ export class AnthropicProvider implements AIProvider {
   constructor() {
     if (!ANTHROPIC_API_KEY) {
       console.warn(
-        "ANTHROPIC_API_KEY not set. Anthropic provider will fail if used."
+        "ANTHROPIC_API_KEY not set. Anthropic provider will fail if used.",
       );
     }
   }
 
   async *generateContentStream(
     prompt: string,
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): AsyncGenerator<string, void, unknown> {
-    const model = options?.model || "claude-3-5-sonnet-20240620";
+    const model = options?.model || "claude-sonnet-5";
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -26,7 +26,7 @@ export class AnthropicProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4096,
+        max_tokens: options?.maxOutputTokens ?? 4096,
         system: options?.systemInstruction,
         messages: [{ role: "user", content: prompt }],
         temperature: options?.temperature ?? 0.7,
@@ -73,9 +73,9 @@ export class AnthropicProvider implements AIProvider {
   async *generateChatStream(
     prompt: string,
     history: any[],
-    options?: AIRequestOptions
-  ): AsyncGenerator<string, void, unknown> {
-    const model = options?.model || "claude-3-5-sonnet-20240620";
+    options?: AIRequestOptions,
+  ): AsyncGenerator<string, number, unknown> {
+    const model = options?.model || "claude-sonnet-5";
 
     // Convert history
     // Wing: { role: 'user'|'model', parts: [{text: '...'}] }
@@ -87,6 +87,16 @@ export class AnthropicProvider implements AIProvider {
 
     messages.push({ role: "user", content: prompt });
 
+    // M4.5: cache de prompt da Anthropic é explícito por bloco — marcar
+    // `cache_control` no bloco do system (documento + instruções, o
+    // prefixo estável) faz a Anthropic guardá-lo e reaproveitar em
+    // chamadas seguintes com o mesmo prefixo. Documentos abaixo do mínimo
+    // cacheável (~1024 tokens pro Sonnet) simplesmente não geram cache,
+    // sem erro — degrada graciosamente sozinho.
+    const system = options?.enablePromptCache && options?.systemInstruction
+      ? [{ type: "text", text: options.systemInstruction, cache_control: { type: "ephemeral" } }]
+      : options?.systemInstruction;
+
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -96,8 +106,8 @@ export class AnthropicProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4096,
-        system: options?.systemInstruction,
+        max_tokens: options?.maxOutputTokens ?? 4096,
+        system,
         messages: messages,
         temperature: options?.temperature ?? 0.7,
         stream: true,
@@ -114,6 +124,7 @@ export class AnthropicProvider implements AIProvider {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let cacheReadTokens = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -132,20 +143,28 @@ export class AnthropicProvider implements AIProvider {
             if (data.type === "content_block_delta" && data.delta?.text) {
               yield data.delta.text;
             }
+            if (data.type === "message_start" && data.message?.usage) {
+              cacheReadTokens = data.message.usage.cache_read_input_tokens ?? 0;
+            }
           } catch (e) {
             console.error("Error parsing Anthropic chunk", e);
           }
         }
       }
     }
+
+    if (options?.enablePromptCache) {
+      console.log(`[AnthropicProvider] ${cacheReadTokens} tokens do prefixo vieram do cache.`);
+    }
+    return cacheReadTokens;
   }
 
   async generateStructuredContent(
     prompt: string,
     schema: object,
-    options?: AIRequestOptions
+    options?: AIRequestOptions,
   ): Promise<string> {
-    const model = options?.model || "claude-3-5-sonnet-20240620";
+    const model = options?.model || "claude-sonnet-5";
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -156,10 +175,11 @@ export class AnthropicProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: model,
-        max_tokens: 4096,
-        system:
-          options?.systemInstruction ||
-          `Responda APENAS com um JSON válido, sem texto ao redor, seguindo este schema: ${JSON.stringify(schema)}`,
+        max_tokens: options?.maxOutputTokens ?? 4096,
+        system: options?.systemInstruction ||
+          `Responda APENAS com um JSON válido, sem texto ao redor, seguindo este schema: ${
+            JSON.stringify(schema)
+          }`,
         messages: [{ role: "user", content: prompt }],
         temperature: options?.temperature ?? 0,
       }),
