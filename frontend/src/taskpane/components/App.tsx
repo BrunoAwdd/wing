@@ -9,7 +9,13 @@ import {
   Spinner,
   Button,
   Text,
+  Dialog,
+  DialogSurface,
+  DialogBody,
+  DialogTitle,
+  DialogContent,
 } from "@fluentui/react-components";
+import { Dismiss24Regular } from "@fluentui/react-icons";
 import StatusBar, { LogEntry } from "./StatusBar";
 import DiffViewer from "./DiffViewer";
 import ActionButtonGroup from "./ActionButtonGroup";
@@ -50,6 +56,7 @@ const useStyles = makeStyles({
     flexDirection: "column",
     flexGrow: 1,
     overflowY: "hidden",
+    minHeight: 0,
   },
   content: {
     flexGrow: 1,
@@ -65,6 +72,31 @@ const useStyles = makeStyles({
     justifyContent: "center",
     height: "100vh",
     gap: "16px",
+  },
+  resultLoading: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "160px",
+    gap: "12px",
+  },
+  dialogSurface: {
+    width: "calc(100vw - 24px)",
+    maxWidth: "none",
+    height: "calc(100vh - 24px)",
+    maxHeight: "none",
+    padding: "16px",
+  },
+  dialogBody: {
+    height: "100%",
+    minHeight: 0,
+  },
+  dialogContent: {
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0,
+    overflowY: "auto",
   },
 });
 
@@ -91,6 +123,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const [command, setCommand] = useState("fix");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showRating, setShowRating] = useState(false);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [tone, setTone] = useState("formal");
   const [language, setLanguage] = useState("inglês");
   // QUICK_MODEL_ROUTING_PLAN Entrega 3: "usar Equilibrado como padrão".
@@ -170,6 +203,19 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setIsSuggestionAvailable(false);
   }, [originalText]);
 
+  useEffect(() => {
+    if (!isLoading && !showRating && suggestedText.length === 0) {
+      setIsSuggestionAvailable(false);
+      setIsResultModalOpen(false);
+    }
+  }, [isLoading, showRating, suggestedText.length, setIsSuggestionAvailable]);
+
+  useEffect(() => {
+    if (isLoading || isSuggestionAvailable || showRating) {
+      setIsResultModalOpen(true);
+    }
+  }, [isLoading, isSuggestionAvailable, showRating]);
+
   const handleAcceptAll = async () => {
     if (suggestedText.length === 0) return;
     track("suggestion_accepted_all", { command: lastCommand }, sessionToken);
@@ -202,6 +248,11 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setSuggestedText([]);
     setIsSuggestionAvailable(false);
     setShowRating(true);
+  };
+
+  const closeResult = () => {
+    if (isLoading) return;
+    setIsResultModalOpen(false);
   };
 
   const handleAcceptSingle = async (id: string) => {
@@ -358,30 +409,6 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     <div className={styles.root}>
       <StatusBar logs={logs} />
       <div className={styles.mainView}>
-        <div className={styles.content}>
-          {isLoading ? (
-            <div className={styles.loading}>
-              <Spinner />
-              <p>Processando...</p>
-            </div>
-          ) : (
-            <DiffViewer
-              originalText={originalText}
-              suggestedText={suggestedText}
-              onAcceptSingle={handleAcceptSingle}
-              onRejectSingle={handleRejectSingle}
-            />
-          )}
-          {showRating ? (
-            <Rating onRate={handleRate} />
-          ) : (
-            <ActionButtonGroup
-              isSuggestionAvailable={isSuggestionAvailable}
-              onAccept={handleAcceptAll}
-              onReject={handleRejectAll}
-            />
-          )}
-        </div>
         <CommandConsole
           command={command}
           onCommandChange={setCommand}
@@ -402,7 +429,62 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
             addLog("Memória sincronizada.", "success");
           }}
           onSelectAll={selectAllDocument}
+          selectedParagraphCount={originalText.length}
+          hasLastResult={isLoading || isSuggestionAvailable || showRating}
+          onOpenLastResult={() => setIsResultModalOpen(true)}
         />
+        <Dialog
+          open={isResultModalOpen}
+          onOpenChange={(_, data) => {
+            if (!data.open && !isLoading) {
+              closeResult();
+            }
+          }}
+        >
+          <DialogSurface className={styles.dialogSurface}>
+            <DialogBody className={styles.dialogBody}>
+              <DialogTitle
+                action={
+                  <Button
+                    appearance="subtle"
+                    icon={<Dismiss24Regular />}
+                    onClick={closeResult}
+                    disabled={isLoading}
+                    aria-label="Fechar resultado"
+                  />
+                }
+              >
+                Resultado
+              </DialogTitle>
+              <DialogContent className={styles.dialogContent}>
+                {isLoading ? (
+                  <div className={styles.resultLoading}>
+                    <Spinner />
+                    <p>Processando...</p>
+                  </div>
+                ) : (
+                  <>
+                    <DiffViewer
+                      originalText={originalText}
+                      suggestedText={suggestedText}
+                      onAcceptSingle={handleAcceptSingle}
+                      onRejectSingle={handleRejectSingle}
+                    />
+                    {showRating ? (
+                      <Rating onRate={handleRate} />
+                    ) : (
+                      <ActionButtonGroup
+                        isSuggestionAvailable={isSuggestionAvailable}
+                        onAccept={handleAcceptAll}
+                        onReject={handleRejectAll}
+                      />
+                    )}
+                  </>
+                )}
+              </DialogContent>
+            </DialogBody>
+          </DialogSurface>
+        </Dialog>
       </div>
     </div>
   );
