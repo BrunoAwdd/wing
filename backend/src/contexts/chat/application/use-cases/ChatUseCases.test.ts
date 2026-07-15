@@ -1,5 +1,12 @@
-import { assertEquals, assertRejects } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { ChatUseCases, type ChatConfig, type ChatDependencies } from "./ChatUseCases.ts";
+import {
+  assertEquals,
+  assertRejects,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  type ChatConfig,
+  type ChatDependencies,
+  ChatUseCases,
+} from "./ChatUseCases.ts";
 import { InMemoryChatSessionRepository } from "../../infrastructure/adapters/InMemoryChatSessionRepository.ts";
 import {
   AccountRevokedError,
@@ -29,13 +36,19 @@ const streamFrom = (chunks: string[]): AsyncGenerator<string, void, unknown> =>
     for (const chunk of chunks) yield chunk;
   })();
 
-const baseDeps = (overrides: Partial<ChatDependencies> = {}): ChatDependencies => ({
+const baseDeps = (
+  overrides: Partial<ChatDependencies> = {},
+): ChatDependencies => ({
   now: () => 1_000,
   randomUUID: () => "session-1",
   isAccountRevoked: async () => false,
   validateAppSession: (appSessionId) =>
     appSessionId === "app-1"
-      ? { appSessionId, documentId: "doc-1", absoluteExpiresAt: Number.MAX_SAFE_INTEGER }
+      ? {
+        appSessionId,
+        documentId: "doc-1",
+        absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
+      }
       : null,
   getEntitlement: async () => ({ plan: "free" }),
   reserveCredits: async () => ({ reservationId: "res-1", allowed: true }),
@@ -48,6 +61,7 @@ const baseDeps = (overrides: Partial<ChatDependencies> = {}): ChatDependencies =
   isSelectableQualityLevel: () => false,
   isQualityLevelAllowedForPlan: () => true,
   resolveQualityLevelModel: () => "gemini-flash-3.5",
+  isModelAvailable: () => true,
   ...overrides,
 });
 
@@ -82,7 +96,12 @@ Deno.test("ChatUseCases.startSession: rejeita app session inválida", async () =
 
 Deno.test("ChatUseCases.startSession: usa o modelo padrão injetado via config, nunca lê ENV diretamente", async () => {
   const useCases = buildUseCases();
-  const { sessionId } = await useCases.startSession("acc-1", "app-1", "doc", []);
+  const { sessionId } = await useCases.startSession(
+    "acc-1",
+    "app-1",
+    "doc",
+    [],
+  );
   assertEquals(sessionId, "session-1");
 });
 
@@ -102,14 +121,23 @@ Deno.test("ChatUseCases.sendMessage: revalida a App Session a cada mensagem e fa
   const useCases = buildUseCases({
     validateAppSession: (appSessionId) =>
       !appSessionRevoked && appSessionId === "app-1"
-        ? { appSessionId, documentId: "doc-1", absoluteExpiresAt: Number.MAX_SAFE_INTEGER }
+        ? {
+          appSessionId,
+          documentId: "doc-1",
+          absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
+        }
         : null,
   });
 
   await useCases.startSession("acc-1", "app-1", "doc", []);
 
   // Antes de expirar: a app session ainda é válida, a mensagem passa.
-  const firstStream = await useCases.sendMessage("acc-1", "session-1", "oi", undefined);
+  const firstStream = await useCases.sendMessage(
+    "acc-1",
+    "session-1",
+    "oi",
+    undefined,
+  );
   for await (const _chunk of firstStream) {
     // drena o stream pra completar a liquidação de créditos
   }
@@ -117,7 +145,8 @@ Deno.test("ChatUseCases.sendMessage: revalida a App Session a cada mensagem e fa
   // App session encerrada no meio da conversa (ex: usuário fechou o Word).
   appSessionRevoked = true;
   await assertRejects(
-    () => useCases.sendMessage("acc-1", "session-1", "outra pergunta", undefined),
+    () =>
+      useCases.sendMessage("acc-1", "session-1", "outra pergunta", undefined),
     AppSessionExpiredError,
   );
 });
@@ -138,7 +167,12 @@ Deno.test("ChatUseCases.sendMessage: usa o absoluteExpiresAt da própria valida�
   });
 
   await useCases.startSession("acc-1", "app-1", "doc", []);
-  const stream = await useCases.sendMessage("acc-1", "session-1", "oi", undefined);
+  const stream = await useCases.sendMessage(
+    "acc-1",
+    "session-1",
+    "oi",
+    undefined,
+  );
   for await (const _chunk of stream) {
     // drena o stream
   }

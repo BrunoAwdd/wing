@@ -60,3 +60,13 @@ export class QuotaExceededError extends Error {
     this.name = "QuotaExceededError";
   }
 }
+
+export class ModelProviderUnavailableError extends Error {
+  constructor(
+    public readonly model: string,
+    public readonly provider: string,
+  ) {
+    super("model_provider_unavailable");
+    this.name = "ModelProviderUnavailableError";
+  }
+}

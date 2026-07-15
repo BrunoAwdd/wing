@@ -86,7 +86,7 @@ export const createWingSessionService = (
         });
 
         if (payload.token_use !== "wing_session") {
-          throw new WingSessionValidationError();
+          throw new WingSessionValidationError("Claim token_use inválida.");
         }
 
         const accountId = payload.sub;
@@ -102,7 +102,7 @@ export const createWingSessionService = (
           typeof payload.iat !== "number" ||
           typeof payload.exp !== "number"
         ) {
-          throw new WingSessionValidationError();
+          throw new WingSessionValidationError("Claims obrigatórias ausentes ou inválidas.");
         }
 
         return {
@@ -115,8 +115,17 @@ export const createWingSessionService = (
         };
       } catch (error) {
         if (error instanceof WingSessionValidationError) {
+          console.error(
+            "[wingSessionService] Claims da sessão Wing inválidas:",
+            error.message,
+          );
           throw error;
         }
+        // Diagnóstico temporário: a causa real (expirado, assinatura,
+        // issuer/audience) estava sendo descartada aqui e de novo no catch
+        // silencioso do middleware — impossível saber por que um 401
+        // específico acontecia sem isto.
+        console.error("[wingSessionService] verify() falhou:", error);
         throw new WingSessionValidationError();
       }
     },

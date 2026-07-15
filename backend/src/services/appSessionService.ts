@@ -31,15 +31,18 @@ const positiveInteger = (name: string, fallback: number): number => {
 
 const defaultConfig: AppSessionServiceConfig = {
   ttlMs: positiveInteger("WING_APP_SESSION_TTL_MS", 10 * 60 * 1000),
-  maxDurationMs: positiveInteger("WING_APP_SESSION_MAX_DURATION_MS", 60 * 60 * 1000),
+  maxDurationMs: positiveInteger(
+    "WING_APP_SESSION_MAX_DURATION_MS",
+    60 * 60 * 1000,
+  ),
   now: Date.now,
-  randomUUID: crypto.randomUUID,
+  randomUUID: () => crypto.randomUUID(),
   scheduleExpiration: (callback, delay) => {
     const timeoutId = setTimeout(callback, delay);
     Deno.unrefTimer(timeoutId);
     return timeoutId;
   },
-  cancelExpiration: clearTimeout,
+  cancelExpiration: (timeoutId) => clearTimeout(timeoutId),
   onSessionEnd: (appSessionId) => {
     geminiContextCache.invalidateAppSession(appSessionId).catch((error) => {
       console.error(
@@ -64,7 +67,11 @@ export const createAppSessionService = (
 
   const timerService = new (class implements TimerService {
     private map = new Map<string, number>();
-    scheduleExpiration(appSessionId: string, delay: number, onExpire: (id: string) => void): void {
+    scheduleExpiration(
+      appSessionId: string,
+      delay: number,
+      onExpire: (id: string) => void,
+    ): void {
       this.cancelExpiration(appSessionId);
       const handle = config.scheduleExpiration(() => {
         this.map.delete(appSessionId);

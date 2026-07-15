@@ -1,5 +1,8 @@
 import { type Context, Router } from "../deps.ts";
-import { generateChatStream } from "../services/aiService.ts";
+import {
+  generateChatStream,
+  isProviderAvailable,
+} from "../services/aiService.ts";
 import { billingService } from "../services/billingService.ts";
 import logger from "../services/logger.ts";
 import { track } from "../services/telemetry.ts";
@@ -17,7 +20,10 @@ import {
   isSelectableQualityLevel,
   resolveQualityLevelModel,
 } from "../services/qualityLevels.ts";
-import { compactHistory, DEFAULT_CONTEXT_WINDOW_ENTRIES } from "../services/chatContextCache.ts";
+import {
+  compactHistory,
+  DEFAULT_CONTEXT_WINDOW_ENTRIES,
+} from "../services/chatContextCache.ts";
 import { geminiContextCache } from "../services/geminiContextCache.ts";
 import {
   type AppSessionService,
@@ -69,6 +75,7 @@ export interface ChatRouteDependencies {
   trackEvent: typeof track;
   getCachedContent: typeof geminiContextCache.getOrCreate;
   appSessions: Pick<AppSessionService, "validate">;
+  isProviderAvailable: typeof isProviderAvailable;
 }
 
 const positiveInteger = (name: string, fallback: number): number => {
@@ -90,16 +97,17 @@ const defaultDependencies: ChatRouteDependencies = {
   settleCredits: billingService.settleCredits,
   isAccountRevoked: billingService.isAccountRevoked,
   now: Date.now,
-  randomUUID: crypto.randomUUID,
+  randomUUID: () => crypto.randomUUID(),
   scheduleExpiration: (callback, delay) => {
     const timeoutId = setTimeout(callback, delay);
     Deno.unrefTimer(timeoutId);
     return timeoutId;
   },
-  cancelExpiration: clearTimeout,
+  cancelExpiration: (timeoutId) => clearTimeout(timeoutId),
   trackEvent: track,
   getCachedContent: geminiContextCache.getOrCreate,
   appSessions: appSessionService,
+  isProviderAvailable,
 };
 
 const readJson = async (
@@ -117,7 +125,10 @@ const readJson = async (
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
 
-import { ChatConfig, ChatUseCases } from "../contexts/chat/application/use-cases/ChatUseCases.ts";
+import {
+  ChatConfig,
+  ChatUseCases,
+} from "../contexts/chat/application/use-cases/ChatUseCases.ts";
 import { InMemoryChatSessionRepository } from "../contexts/chat/infrastructure/adapters/InMemoryChatSessionRepository.ts";
 import { ChatHistoryEntry } from "../contexts/cache/domain/ChatHistoryCompactor.ts";
 import {
@@ -128,13 +139,20 @@ import {
   ChatMessageLimitError,
   ChatMessageTooLargeError,
   ChatSessionNotFoundError,
+  ModelProviderUnavailableError,
   QualityLevelRequiresUpgradeError,
   QuotaExceededError,
 } from "../contexts/chat/application/errors.ts";
 
 const defaultConfig: ChatConfig = {
-  contextWindowEntries: positiveInteger("WING_CHAT_CONTEXT_WINDOW", DEFAULT_CONTEXT_WINDOW_ENTRIES),
-  promptCacheTtlSeconds: positiveInteger("WING_CHAT_PROMPT_CACHE_TTL_SECONDS", 3_600),
+  contextWindowEntries: positiveInteger(
+    "WING_CHAT_CONTEXT_WINDOW",
+    DEFAULT_CONTEXT_WINDOW_ENTRIES,
+  ),
+  promptCacheTtlSeconds: positiveInteger(
+    "WING_CHAT_PROMPT_CACHE_TTL_SECONDS",
+    3_600,
+  ),
   freeMonthlyCreditLimit: positiveInteger("WING_FREE_MONTHLY_CREDITS", 1_000),
   maxOutputTokens: positiveInteger("WING_CHAT_MAX_OUTPUT_TOKENS", 2_048),
   defaultBillableModel: resolveBillableModel(Deno.env.get("GEMINI_MODEL")),
@@ -150,32 +168,45 @@ export const createChatRouter = (
   const router = new Router();
   const repository = new InMemoryChatSessionRepository(
     dependencies.scheduleExpiration,
-    dependencies.cancelExpiration
+    dependencies.cancelExpiration,
   );
-  const useCases = new ChatUseCases(repository, {
-    now: dependencies.now,
-    randomUUID: dependencies.randomUUID,
-    isAccountRevoked: dependencies.isAccountRevoked,
-    validateAppSession: (appSessionId, accountId) => {
-      const session = dependencies.appSessions.validate(appSessionId, accountId);
-      return session
-        ? { appSessionId: session.appSessionId, documentId: session.documentId, absoluteExpiresAt: session.absoluteExpiresAt }
-        : null;
+  const useCases = new ChatUseCases(
+    repository,
+    {
+      now: dependencies.now,
+      randomUUID: dependencies.randomUUID,
+      isAccountRevoked: dependencies.isAccountRevoked,
+      validateAppSession: (appSessionId, accountId) => {
+        const session = dependencies.appSessions.validate(
+          appSessionId,
+          accountId,
+        );
+        return session
+          ? {
+            appSessionId: session.appSessionId,
+            documentId: session.documentId,
+            absoluteExpiresAt: session.absoluteExpiresAt,
+          }
+          : null;
+      },
+      getEntitlement: dependencies.getEntitlement,
+      reserveCredits: dependencies.reserveCredits,
+      settleCredits: async (reservationId, charge) => {
+        await dependencies.settleCredits(reservationId, charge);
+      },
+      trackEvent: dependencies.trackEvent,
+      getCachedContent: dependencies.getCachedContent,
+      generateStream: dependencies.generateStream,
+      estimateChatCharge,
+      estimateTokens,
+      isSelectableQualityLevel,
+      isQualityLevelAllowedForPlan,
+      resolveQualityLevelModel,
+      isModelAvailable: dependencies.isProviderAvailable,
     },
-    getEntitlement: dependencies.getEntitlement,
-    reserveCredits: dependencies.reserveCredits,
-    settleCredits: async (reservationId, charge) => {
-      await dependencies.settleCredits(reservationId, charge);
-    },
-    trackEvent: dependencies.trackEvent,
-    getCachedContent: dependencies.getCachedContent,
-    generateStream: dependencies.generateStream,
-    estimateChatCharge,
-    estimateTokens,
-    isSelectableQualityLevel,
-    isQualityLevelAllowedForPlan,
-    resolveQualityLevelModel,
-  }, limits, config);
+    limits,
+    config,
+  );
 
   router.use(requireWingSession);
 
@@ -215,7 +246,7 @@ export const createChatRouter = (
         auth.accountId,
         appSessionId,
         documentText,
-        priorMessages
+        priorMessages,
       );
 
       ctx.response.status = 201;
@@ -255,7 +286,9 @@ export const createChatRouter = (
     const body = await readJson(ctx);
     if (!body) return;
 
-    const { sessionId, message, qualityLevel } = body as Partial<SendMessageRequest>;
+    const { sessionId, message, qualityLevel } = body as Partial<
+      SendMessageRequest
+    >;
     if (!isNonEmptyString(sessionId) || !isNonEmptyString(message)) {
       ctx.response.status = 400;
       ctx.response.body = { error: "sessionId e message são obrigatórios." };
@@ -265,7 +298,12 @@ export const createChatRouter = (
     const auth = getWingAuth(ctx);
 
     try {
-      const stream = await useCases.sendMessage(auth.accountId, sessionId, message, qualityLevel);
+      const stream = await useCases.sendMessage(
+        auth.accountId,
+        sessionId,
+        message,
+        qualityLevel,
+      );
       ctx.response.status = 200;
       ctx.response.body = stream;
     } catch (error) {
@@ -313,8 +351,20 @@ export const createChatRouter = (
       } else if (error instanceof QuotaExceededError) {
         ctx.response.status = 402;
         ctx.response.body = {
-          error: "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
+          error:
+            "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
           code: "quota_exceeded",
+        };
+      } else if (error instanceof ModelProviderUnavailableError) {
+        logger.error(
+          `[chat] Provedor '${error.provider}' indisponível para o modelo '${error.model}'. Verifique a API key correspondente.`,
+        );
+        ctx.response.status = 503;
+        ctx.response.body = {
+          error: "O modelo selecionado está temporariamente indisponível.",
+          code: "model_provider_unavailable",
+          provider: error.provider,
+          model: error.model,
         };
       } else {
         throw error;

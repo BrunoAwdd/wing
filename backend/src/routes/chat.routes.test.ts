@@ -73,11 +73,16 @@ const createTestApp = (
           }
           : null,
     },
+    isProviderAvailable: () => true,
     ...overrides,
   };
   const app = new Application();
   const root = new Router();
-  const chat = createChatRouter(dependencies, { ...limits, ...limitOverrides }, { ...defaultConfig, ...configOverrides });
+  const chat = createChatRouter(
+    dependencies,
+    { ...limits, ...limitOverrides },
+    { ...defaultConfig, ...configOverrides },
+  );
   root.use("/api/v1/chat", chat.routes(), chat.allowedMethods());
   app.use(root.routes());
   app.use(root.allowedMethods());
@@ -178,7 +183,10 @@ Deno.test("M4.5 chat: /start com priorMessages reconstrói o contexto da convers
   await response!.text();
 
   assertEquals(receivedHistory?.length, 2);
-  assertEquals(receivedHistory?.[0].parts[0].text, "qual é o prazo da cláusula 3?");
+  assertEquals(
+    receivedHistory?.[0].parts[0].text,
+    "qual é o prazo da cláusula 3?",
+  );
   assertEquals(receivedHistory?.[1].parts[0].text, "o prazo é 30 dias");
 });
 
@@ -192,7 +200,9 @@ Deno.test("M4.5 chat: priorMessages malformado ou vazio não quebra /start (sess
   }, token);
   assertEquals(withGarbage?.status, 201);
 
-  const withoutField = await request(app, "/start", { documentText: "Documento" }, token);
+  const withoutField = await request(app, "/start", {
+    documentText: "Documento",
+  }, token);
   assertEquals(withoutField?.status, 201);
 });
 
@@ -532,6 +542,44 @@ Deno.test("M4.5 chat: nível 'profundo' com plano Pro chama e cobra o mesmo mode
   assertEquals(executedModel, "claude-sonnet-5");
 });
 
+Deno.test("chat: provedor sem API key retorna 503 antes de reservar créditos ou iniciar stream", async () => {
+  let reserveCalls = 0;
+  let providerCalls = 0;
+  const app = createTestApp({
+    isProviderAvailable: (model) => !model?.startsWith("gpt"),
+    reserveCredits: async () => {
+      reserveCalls += 1;
+      return {
+        reservationId: "00000000-0000-0000-0000-000000000010",
+        creditsUsed: 0,
+        allowed: true,
+      };
+    },
+    generateStream: () => {
+      providerCalls += 1;
+      return streamFrom(["não deve ocorrer"]);
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "equilibrado",
+  }, token);
+
+  assertEquals(response?.status, 503);
+  assertEquals(await response!.json(), {
+    error: "O modelo selecionado está temporariamente indisponível.",
+    code: "model_provider_unavailable",
+    provider: "openai",
+    model: "gpt-5.6-terra",
+  });
+  assertEquals(reserveCalls, 0);
+  assertEquals(providerCalls, 0);
+});
+
 Deno.test("M4.5 chat: histórico além da janela de contexto é compactado antes de ir pro provedor", async () => {
   const histories: ChatHistoryEntry[][] = [];
   const app = createTestApp(
@@ -548,7 +596,10 @@ Deno.test("M4.5 chat: histórico além da janela de contexto é compactado antes
   const sessionId = await startSession(app, token);
 
   for (let i = 0; i < 4; i += 1) {
-    const response = await request(app, "/message", { sessionId, message: `p${i}` }, token);
+    const response = await request(app, "/message", {
+      sessionId,
+      message: `p${i}`,
+    }, token);
     await response!.text();
   }
 
@@ -593,10 +644,15 @@ Deno.test("M4.5 chat: modelo Gemini usa o cache explícito (GoogleAICacheManager
 });
 
 Deno.test("M4.5 chat: GPT/Claude pedem cache de prompt implícito ao provedor (enablePromptCache)", async () => {
-  const receivedOptions: Array<{ enablePromptCache?: boolean; model?: string }> = [];
+  const receivedOptions: Array<
+    { enablePromptCache?: boolean; model?: string }
+  > = [];
   const app = createTestApp({
     generateStream: (_message, _history, options) => {
-      receivedOptions.push({ enablePromptCache: options?.enablePromptCache, model: options?.model });
+      receivedOptions.push({
+        enablePromptCache: options?.enablePromptCache,
+        model: options?.model,
+      });
       return streamFrom(["ok"]);
     },
   });
@@ -609,18 +665,27 @@ Deno.test("M4.5 chat: GPT/Claude pedem cache de prompt implícito ao provedor (e
     qualityLevel: "rapido",
   }, token))!.text();
 
-  assertEquals(receivedOptions[0], { enablePromptCache: true, model: "gpt-5.6-luna" });
+  assertEquals(receivedOptions[0], {
+    enablePromptCache: true,
+    model: "gpt-5.6-luna",
+  });
 });
 
 Deno.test("M4.7 chat: telemetria de cache usa a repartição real de tokens do provedor e créditos economizados, não 'um cache foi tentado'", async () => {
-  const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
+  const trackedEvents: Array<
+    { name: string; properties?: Record<string, unknown> }
+  > = [];
   const app = createTestApp({
     trackEvent: (eventName, properties) => {
       trackedEvents.push({ name: eventName, properties });
     },
     generateStream: () => {
       // deno-lint-ignore require-yield
-      return (async function* (): AsyncGenerator<string, { cachedInputTokens: number; cacheWriteTokens: number }, unknown> {
+      return (async function* (): AsyncGenerator<
+        string,
+        { cachedInputTokens: number; cacheWriteTokens: number },
+        unknown
+      > {
         return { cachedInputTokens: 350, cacheWriteTokens: 0 }; // simula economia real reportada pelo provedor
       })();
     },
@@ -634,7 +699,9 @@ Deno.test("M4.7 chat: telemetria de cache usa a repartição real de tokens do p
     qualityLevel: "rapido",
   }, token))!.text();
 
-  const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
+  const cacheEvent = trackedEvents.find((e) =>
+    e.name === "chat_context_cache_used"
+  );
   // gpt-5.6-luna: inputPerThousandTokens=3. 350 tokens cheios = ceil(350*3/1000)=2;
   // com 50% de desconto = ceil(2*0.5)=1. creditsSaved = 2-1 = 1.
   assertEquals(cacheEvent?.properties, {
@@ -646,7 +713,9 @@ Deno.test("M4.7 chat: telemetria de cache usa a repartição real de tokens do p
 });
 
 Deno.test("M4.7 chat: sem hit real, telemetria registra cached:0, cached_tokens:0 e credits_saved:0 mesmo com cache tentado", async () => {
-  const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
+  const trackedEvents: Array<
+    { name: string; properties?: Record<string, unknown> }
+  > = [];
   const app = createTestApp({
     trackEvent: (eventName, properties) => {
       trackedEvents.push({ name: eventName, properties });
@@ -662,7 +731,9 @@ Deno.test("M4.7 chat: sem hit real, telemetria registra cached:0, cached_tokens:
     qualityLevel: "rapido",
   }, token))!.text();
 
-  const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
+  const cacheEvent = trackedEvents.find((e) =>
+    e.name === "chat_context_cache_used"
+  );
   assertEquals(cacheEvent?.properties, {
     cached: 0,
     cached_tokens: 0,
@@ -672,7 +743,9 @@ Deno.test("M4.7 chat: sem hit real, telemetria registra cached:0, cached_tokens:
 });
 
 Deno.test("M4.7 chat: escrita de cache (Anthropic) entra na cobrança final e na telemetria, mesmo sem hit de leitura", async () => {
-  const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
+  const trackedEvents: Array<
+    { name: string; properties?: Record<string, unknown> }
+  > = [];
   let settledCharge: { credits: number; cacheWriteTokens?: number } | undefined;
   const app = createTestApp({
     getEntitlement: async () => ({ plan: "pro", status: "active" }), // "profundo" exige plano pago
@@ -685,7 +758,11 @@ Deno.test("M4.7 chat: escrita de cache (Anthropic) entra na cobrança final e na
     },
     generateStream: () => {
       // deno-lint-ignore require-yield
-      return (async function* (): AsyncGenerator<string, { cachedInputTokens: number; cacheWriteTokens: number }, unknown> {
+      return (async function* (): AsyncGenerator<
+        string,
+        { cachedInputTokens: number; cacheWriteTokens: number },
+        unknown
+      > {
         return { cachedInputTokens: 0, cacheWriteTokens: 500 };
       })();
     },
@@ -699,7 +776,9 @@ Deno.test("M4.7 chat: escrita de cache (Anthropic) entra na cobrança final e na
     qualityLevel: "profundo",
   }, token))!.text();
 
-  const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
+  const cacheEvent = trackedEvents.find((e) =>
+    e.name === "chat_context_cache_used"
+  );
   assertEquals(cacheEvent?.properties, {
     cached: 0, // escrita não é "hit" — só leitura conta como cache usado com desconto
     cached_tokens: 500,
@@ -720,13 +799,21 @@ Deno.test("M4.7 chat: totalInputTokens real do provedor substitui a estimativa p
       // deno-lint-ignore require-yield
       return (async function* (): AsyncGenerator<
         string,
-        { cachedInputTokens: number; cacheWriteTokens: number; totalInputTokens: number },
+        {
+          cachedInputTokens: number;
+          cacheWriteTokens: number;
+          totalInputTokens: number;
+        },
         unknown
       > {
         // Bem maior do que a estimativa por tamanho de texto geraria pra
         // uma mensagem tão curta — prova que o valor real do provedor
         // venceu a heurística, não só coexistiu com ela.
-        return { cachedInputTokens: 0, cacheWriteTokens: 0, totalInputTokens: 50_000 };
+        return {
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          totalInputTokens: 50_000,
+        };
       })();
     },
   });
@@ -839,10 +926,16 @@ Deno.test("M4.6 chat: nenhum limite de sessões simultâneas por conta — três
   assertEquals(new Set(sessionIds).size, 3);
 
   for (let i = 0; i < sessionIds.length; i++) {
-    const response = await request(app, "/message", {
-      sessionId: sessionIds[i],
-      message: `pergunta ${i}`,
-    }, token, ["app-a", "app-b", "app-c"][i]);
+    const response = await request(
+      app,
+      "/message",
+      {
+        sessionId: sessionIds[i],
+        message: `pergunta ${i}`,
+      },
+      token,
+      ["app-a", "app-b", "app-c"][i],
+    );
     assertEquals(response?.status, 200);
   }
 });

@@ -1,4 +1,7 @@
-import { assertEquals, assertNotEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import {
+  assertEquals,
+  assertNotEquals,
+} from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { createAppSessionService } from "./appSessionService.ts";
 
 const ACCOUNT_ID = "0f2bbf0f-15af-43e7-83f2-c1ee467f09a1";
@@ -43,13 +46,28 @@ Deno.test("M4.6 appSessionService: register nunca rejeita, mesmo com muitas sess
   }
 });
 
+Deno.test("M4.6 appSessionService: configuração padrão preserva o receiver de crypto.randomUUID", () => {
+  const service = createAppSessionService();
+  const session = service.register(ACCOUNT_ID, "doc-default-generator");
+
+  assertEquals(typeof session.appSessionId, "string");
+  assertEquals(session.appSessionId.length > 0, true);
+  service.close(session.appSessionId, ACCOUNT_ID);
+});
+
 Deno.test("M4.6 appSessionService: register retorna ids distintos para a mesma conta e documento", () => {
   const { service } = createTestService();
   const first = service.register(ACCOUNT_ID, "doc-1");
   const second = service.register(ACCOUNT_ID, "doc-1");
   assertNotEquals(first.appSessionId, second.appSessionId);
-  assertEquals(service.validate(first.appSessionId, ACCOUNT_ID)?.appSessionId, first.appSessionId);
-  assertEquals(service.validate(second.appSessionId, ACCOUNT_ID)?.appSessionId, second.appSessionId);
+  assertEquals(
+    service.validate(first.appSessionId, ACCOUNT_ID)?.appSessionId,
+    first.appSessionId,
+  );
+  assertEquals(
+    service.validate(second.appSessionId, ACCOUNT_ID)?.appSessionId,
+    second.appSessionId,
+  );
 });
 
 Deno.test("M4.6 appSessionService: validate rejeita conta errada, id desconhecido e sessão expirada", () => {
