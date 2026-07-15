@@ -305,7 +305,8 @@ export const createChatRouter = (
     // M4.6: revalida a cada mensagem, não só no /start — sem isto, fechar a
     // instância do Word só cortaria o chat quando o TTL de 30 min do chat em
     // si vencesse, um prazo muito mais longo e desacoplado do fechamento.
-    if (!dependencies.appSessions.validate(session.appSessionId, auth.accountId)) {
+    const appSession = dependencies.appSessions.validate(session.appSessionId, auth.accountId);
+    if (!appSession) {
       ctx.response.status = 403;
       ctx.response.body = {
         error: "Sessão de instância do Word expirada.",
@@ -399,12 +400,27 @@ export const createChatRouter = (
       if (billableModel.startsWith("gemini")) {
         promptCacheAttempted = true;
         promptCacheProvider = "gemini";
+        // M4.7: nunca cacheia por mais tempo do que a app session ainda vai
+        // viver — sem isso, um cache criado a poucos minutos do teto
+        // absoluto (1h) continuava sendo cobrado pelo TTL cheio configurado
+        // mesmo depois da sessão dona dele ter encerrado (o `onSessionEnd`
+        // em appSessionService.ts cobre o encerramento, mas não uma
+        // criação tardia cujo TTL nominal já nasce maior que o tempo de
+        // vida restante da sessão).
+        const configuredTtlSeconds = positiveInteger(
+          "WING_CHAT_PROMPT_CACHE_TTL_SECONDS",
+          3_600,
+        );
+        const remainingSessionSeconds = Math.max(
+          1,
+          Math.floor((appSession.absoluteExpiresAt - dependencies.now()) / 1000),
+        );
         const cacheEntry = await dependencies.getCachedContent({
           accountId: auth.accountId,
           documentText: session.documentText,
           model: billableModel,
           systemInstruction,
-          ttlSeconds: positiveInteger("WING_CHAT_PROMPT_CACHE_TTL_SECONDS", 3_600),
+          ttlSeconds: Math.min(configuredTtlSeconds, remainingSessionSeconds),
           // M4.6: isola o cache remoto por instância — duas app sessions no
           // mesmo documento não compartilham o mesmo cache de prompt.
           appSessionId: session.appSessionId,
@@ -500,31 +516,31 @@ export const createChatRouter = (
     ctx.response.status = 200;
     ctx.response.body = (async function* () {
       let completeResponse = "";
+      // Declarado fora do `try` de propósito: a liquidação no `finally`
+      // precisa da repartição real de cache mesmo quando o try já terminou
+      // (sucesso ou erro) — sem isso, a cobrança final nunca sabia se houve
+      // cache hit de verdade, e reconciliava só pela saída, ignorando a
+      // economia real de entrada.
+      let cacheUsage: {
+        cachedInputTokens: number;
+        cacheWriteTokens: number;
+        totalInputTokens?: number;
+      } = {
+        cachedInputTokens: 0,
+        cacheWriteTokens: 0,
+      };
       try {
         // Iteração manual (não `for await...of`) pra capturar o valor de
         // `return` do generator — é só ali, depois do stream inteiro
-        // consumido, que dá pra saber quantos tokens do prefixo vieram do
-        // cache de verdade (não apenas "um cache existe/foi criado").
-        let cachedTokens = 0;
+        // consumido, que dá pra saber a repartição real de tokens de cache
+        // (não apenas "um cache existe/foi criado").
         let next = await stream.next();
         while (!next.done) {
           completeResponse += next.value;
           yield next.value;
           next = await stream.next();
         }
-        cachedTokens = typeof next.value === "number" ? next.value : 0;
-
-        if (promptCacheAttempted && promptCacheProvider) {
-          dependencies.trackEvent(
-            "chat_context_cache_used",
-            {
-              cached: cachedTokens > 0 ? 1 : 0,
-              cached_tokens: cachedTokens,
-              provider: promptCacheProvider,
-            },
-            session.accountId,
-          );
-        }
+        if (next.value) cacheUsage = next.value;
 
         session.history.push({
           role: "model",
@@ -553,13 +569,36 @@ export const createChatRouter = (
         if (reservationId) {
           // Mesma base da reserva (systemInstruction + histórico compactado)
           // — senão a liquidação "true-up" comparado a uma estimativa de
-          // entrada diferente da que foi de fato reservada/enviada.
+          // entrada diferente da que foi de fato reservada/enviada. Agora
+          // com a repartição real de cache: reconcilia a cobrança estimada
+          // (sempre tarifa cheia, conservadora) com o consumo real
+          // reportado pelo provedor (M4.7).
           const actualCharge = estimateChatCharge(
             trimmedMessage,
             [{ parts: [{ text: systemInstruction }] }, ...compactedHistory],
             billableModel,
             estimateTokens(completeResponse),
+            cacheUsage,
           );
+
+          // Telemetria de cache registrada aqui (não antes) pra reusar a
+          // MESMA cobrança calculada acima — inclui `credits_saved`, a
+          // prova final de "economia visível ao cliente" que o gate do
+          // M4.7 pede, não só uma contagem de tokens.
+          if (promptCacheAttempted && promptCacheProvider) {
+            const totalCacheTokens = cacheUsage.cachedInputTokens + cacheUsage.cacheWriteTokens;
+            dependencies.trackEvent(
+              "chat_context_cache_used",
+              {
+                cached: cacheUsage.cachedInputTokens > 0 ? 1 : 0,
+                cached_tokens: totalCacheTokens,
+                provider: promptCacheProvider,
+                credits_saved: actualCharge.creditsSaved,
+              },
+              session.accountId,
+            );
+          }
+
           await dependencies.settleCredits(
             reservationId,
             actualCharge,

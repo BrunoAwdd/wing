@@ -26,7 +26,9 @@
 | M4.4  | Carteira mensal de créditos              | Concluído    | M2-M4        | Custo de IA controlado por conta e modelo             |
 | M4.5  | Cache do Fale com o documento            | Concluído    | M3, M4.4     | Conversas contínuas com menor custo de contexto       |
 | M4.6  | Sessão por instância do Word             | Concluído    | M1, M3, M4.5 | Documentos abertos isolados sem licença por assento   |
-| M5    | Empacotamento e ambiente de produção     | Pendente     | M1-M4.6      | Add-in instalável fora do ambiente de dev             |
+| M4.7  | Ciclo e cobrança do cache                 | Concluído    | M4.4-M4.6    | Cache sustentável com economia visível ao cliente    |
+| M4.8  | DDD e arquitetura hexagonal               | Pendente     | M4.7         | Núcleo comercial testável e independente de vendors  |
+| M5    | Empacotamento e ambiente de produção     | Pendente     | M1-M4.8      | Add-in instalável fora do ambiente de dev             |
 | M6    | Quality gate e piloto pago               | Pendente     | M1-M5        | Liberação controlada para clientes                    |
 | M7    | Enterprise                               | Futuro       | M6           | Governança, múltiplas contas e controle de alterações |
 
@@ -248,13 +250,88 @@ chat ou cache por engano, fechar o Word encerra ou deixa expirar apenas sua app
 session e qualquer quantidade de instâncias autorizadas continua limitada pelo
 saldo de créditos, não por assentos ou dispositivos.
 
+## M4.7 - Ciclo de vida e cobrança do cache
+
+Entregáveis:
+
+- [x] limitar cada app session a uma hora de duração absoluta, sem permitir que
+  heartbeats renovem esse prazo indefinidamente;
+- [x] renovar a app session automaticamente quando o Word permanecer aberto,
+  preservando a conversa local vinculada à conta e ao `wing_doc_id`, inclusive
+  com retry automático de uma mensagem em voo durante a renovação;
+- [x] encerrar ou invalidar os caches remotos associados à sessão expirada;
+- [x] registrar separadamente `input_tokens`, `cached_input_tokens` e
+  `cache_write_tokens` informados por GPT, Gemini e Claude;
+- [x] debitar créditos somente em transações de IA, sem cobrar por sessão aberta,
+  documento aberto ou tempo ocioso;
+- [x] cobrar escrita de cache como entrada normal e aplicar desconto apenas sobre
+  tokens que o provedor confirmar como cache hit;
+- [x] definir limite técnico de tamanho por documento/cache e telemetria de
+  créditos normais, cobrados e economizados;
+- [x] reconciliar a cobrança estimada com o consumo real retornado pelo provedor.
+
+Hipótese comercial inicial: cobrar 50% da tarifa de entrada sobre tokens
+efetivamente recuperados do cache, manter saída e escrita de cache na tarifa
+normal e oferecer gratuitamente o armazenamento necessário durante a app
+session de até uma hora. O percentual deve permanecer configurável até existir
+telemetria suficiente para validar custo e margem por provedor.
+
+Gate de saída: nenhuma app session ou cache remoto sobrevive indefinidamente;
+uma instância aberta por mais de uma hora é renovada sem perder a conversa; cache
+miss nunca recebe desconto; cache hit comprovado reduz os créditos cobrados; e a
+soma dos componentes de uso explica integralmente o débito da carteira.
+
+## M4.8 - DDD e arquitetura hexagonal
+
+Objetivo: reorganizar incrementalmente o backend comercial para que regras de
+negócio não dependam de Oak, Supabase, Stripe ou SDKs de IA. Este milestone não
+é uma reescrita geral e não deve alterar contratos HTTP nem comportamento
+observável do produto.
+
+Entregáveis:
+
+- [ ] mapear os bounded contexts iniciais: Identidade e Entitlements, Carteira
+  e Billing, App Sessions, Chat e Cache;
+- [ ] definir entidades, value objects, invariantes e eventos de domínio apenas
+  onde houver regra de negócio real, evitando modelos anêmicos e abstrações sem uso;
+- [ ] extrair casos de uso para a camada de aplicação, com portas de entrada
+  explícitas e DTOs independentes do transporte HTTP;
+- [ ] definir portas de saída para persistência, pagamentos, provedores de IA,
+  cache, telemetria, relógio e geração de identificadores;
+- [ ] transformar Oak, Supabase, Stripe, GPT, Gemini e Claude em adaptadores,
+  mantendo configuração e detalhes de SDK fora do domínio;
+- [ ] tornar as rotas finas: autenticar, validar DTO, executar um caso de uso e
+  converter seu resultado em resposta HTTP;
+- [ ] migrar um contexto por vez, preservando os testes de contrato existentes
+  e evitando uma troca estrutural de todo o backend em um único PR;
+- [ ] adicionar testes unitários das regras de domínio sem rede, banco ou ENV e
+  testes de contrato para os adaptadores críticos;
+- [ ] documentar dependências permitidas entre camadas e contextos, incluindo
+  uma regra automatizada que impeça imports de infraestrutura no domínio;
+- [ ] remover serviços legados somente depois que seus casos de uso e contratos
+  tiverem sido substituídos e validados.
+
+Ordem sugerida de migração: App Sessions, Carteira e Billing, Cache, Chat e, por
+último, Identidade. App Sessions oferece o primeiro corte com menor risco;
+Carteira e Billing validam as fronteiras onde consistência e idempotência são
+mais importantes; Chat fica para depois porque coordena os demais contextos.
+
+Gate de saída: regras de crédito, expiração de sessão e cobrança de cache podem
+ser executadas em testes sem Oak, Supabase, Stripe ou APIs externas; trocar um
+provedor exige implementar um adaptador, não alterar o domínio; as rotas públicas
+continuam compatíveis; e a suíte completa permanece verde durante toda a migração.
+
 ## M5 - Empacotamento e ambiente de produção
 
 Entregáveis:
 
 - [ ] criar manifesto de produção com URLs, ícones, suporte e SSO definitivos;
 - [ ] remover `localhost` e cliente de HMR do artefato implantado;
-- [ ] alinhar `BACKEND_URL`, CORS e domínios autorizados;
+- [ ] substituir os domínios temporários pelo domínio oficial no manifesto,
+  em `BACKEND_URL` e em `CORS_ALLOWED_ORIGINS`;
+- [ ] validar em produção que `localhost`, o túnel
+  `supercontext-ui.atdigitalbank.com.br`, wildcard e origem `null` não recebem
+  autorização CORS;
 - [ ] separar e documentar configurações de dev, staging e produção;
 - [ ] validar certificados, secrets, health check e observabilidade;
 - [ ] executar smoke test no Word Windows, Mac e Web.

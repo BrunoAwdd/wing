@@ -160,7 +160,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     signOut,
     isOnline,
   } = useAppSetup({ addLog, showFluentToast });
-  const { appSessionId } = useAppSession({ sessionToken, isOnline });
+  const { appSessionId, renewAppSession } = useAppSession({ sessionToken, isOnline });
   const {
     originalText,
     selectAllDocument,
@@ -360,6 +360,7 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         qualityLevel={qualityLevel}
         accountEmail={sessionUser.email}
         appSessionId={appSessionId}
+        renewAppSession={renewAppSession}
       />
     );
   }

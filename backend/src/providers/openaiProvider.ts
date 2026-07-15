@@ -1,4 +1,4 @@
-import { AIProvider, AIRequestOptions } from "./providerInterface.ts";
+import { AIProvider, AIRequestOptions, CacheUsage } from "./providerInterface.ts";
 
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
@@ -78,7 +78,7 @@ export class OpenAIProvider implements AIProvider {
     prompt: string,
     history: any[],
     options?: AIRequestOptions,
-  ): AsyncGenerator<string, number, unknown> {
+  ): AsyncGenerator<string, CacheUsage, unknown> {
     // Convert history to OpenAI format if needed, or assume it's compatible
     // Wing history format: { role: 'user'|'model', parts: [{text: '...'}] }
     // OpenAI format: { role: 'user'|'assistant', content: '...' }
@@ -132,6 +132,11 @@ export class OpenAIProvider implements AIProvider {
     const decoder = new TextDecoder();
     let buffer = "";
     let cachedTokens = 0;
+    // `usage.prompt_tokens` da OpenAI já é o total lógico de entrada
+    // (`cached_tokens` é um subconjunto dele, não somado por cima) — só
+    // chega no chunk final, e só quando `stream_options.include_usage` foi
+    // pedido (acima, condicionado a `enablePromptCache`).
+    let totalInputTokens: number | undefined;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -152,6 +157,9 @@ export class OpenAIProvider implements AIProvider {
             if (data.usage?.prompt_tokens_details?.cached_tokens) {
               cachedTokens = data.usage.prompt_tokens_details.cached_tokens;
             }
+            if (typeof data.usage?.prompt_tokens === "number") {
+              totalInputTokens = data.usage.prompt_tokens;
+            }
           } catch (e) {
             console.error("Error parsing OpenAI chunk", e);
           }
@@ -162,7 +170,10 @@ export class OpenAIProvider implements AIProvider {
     if (options?.enablePromptCache) {
       console.log(`[OpenAIProvider] ${cachedTokens} tokens do prefixo vieram do cache.`);
     }
-    return cachedTokens;
+    // A OpenAI não tem um custo de "escrita" de cache distinto — a primeira
+    // chamada que estabelece o prefixo cacheável é cobrada como entrada
+    // normal, sem sobretaxa. Sempre 0 aqui.
+    return { cachedInputTokens: cachedTokens, cacheWriteTokens: 0, totalInputTokens };
   }
 
   async generateStructuredContent(

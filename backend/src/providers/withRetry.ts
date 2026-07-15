@@ -1,4 +1,4 @@
-import { AIProvider, AIRequestOptions } from "./providerInterface.ts";
+import { AIProvider, AIRequestOptions, CacheUsage } from "./providerInterface.ts";
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
@@ -58,7 +58,7 @@ export function withRetry(provider: AIProvider): AIProvider {
       prompt: string,
       history: any[],
       options?: AIRequestOptions,
-    ): AsyncGenerator<string, number | void, unknown> {
+    ): AsyncGenerator<string, CacheUsage | void, unknown> {
       let lastError: Error | undefined;
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {

@@ -160,7 +160,16 @@ export const TELEMETRY_CATALOG = {
   // mecanismo (Gemini explícito, OpenAI/Anthropic implícitos).
   chat_context_cache_used: {
     source: "server",
-    properties: { cached: countRule, cached_tokens: countRule, provider: cacheProviderRule },
+    properties: {
+      cached: countRule,
+      cached_tokens: countRule,
+      provider: cacheProviderRule,
+      // M4.7: créditos que a conta deixou de pagar por causa do desconto
+      // de leitura de cache — a prova final de "economia visível ao
+      // cliente" que o gate de saída do M4.7 pede, não só uma contagem de
+      // tokens que ninguém fora do time consegue traduzir em dinheiro.
+      credits_saved: countRule,
+    },
   },
 } as const satisfies Record<string, EventDefinition>;
 

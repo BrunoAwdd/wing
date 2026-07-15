@@ -1,4 +1,4 @@
-import { AIProvider, AIRequestOptions } from "./providerInterface.ts";
+import { AIProvider, AIRequestOptions, CacheUsage } from "./providerInterface.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
@@ -74,7 +74,7 @@ export class AnthropicProvider implements AIProvider {
     prompt: string,
     history: any[],
     options?: AIRequestOptions,
-  ): AsyncGenerator<string, number, unknown> {
+  ): AsyncGenerator<string, CacheUsage, unknown> {
     const model = options?.model || "claude-sonnet-5";
 
     // Convert history
@@ -125,6 +125,14 @@ export class AnthropicProvider implements AIProvider {
     const decoder = new TextDecoder();
     let buffer = "";
     let cacheReadTokens = 0;
+    // Distinto de leitura: tokens gravados no cache NESTA chamada (ex:
+    // primeira pergunta sobre um documento novo) — cobrado como entrada
+    // normal, não é a mesma coisa que "veio do cache com desconto".
+    let cacheWriteTokens = 0;
+    // `usage.input_tokens` da Anthropic já exclui os tokens cacheados/
+    // gravados (é só a parte "nova" cobrada à tarifa cheia) — o total
+    // lógico de entrada é a soma dos três.
+    let freshInputTokens = 0;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -145,6 +153,8 @@ export class AnthropicProvider implements AIProvider {
             }
             if (data.type === "message_start" && data.message?.usage) {
               cacheReadTokens = data.message.usage.cache_read_input_tokens ?? 0;
+              cacheWriteTokens = data.message.usage.cache_creation_input_tokens ?? 0;
+              freshInputTokens = data.message.usage.input_tokens ?? 0;
             }
           } catch (e) {
             console.error("Error parsing Anthropic chunk", e);
@@ -154,9 +164,15 @@ export class AnthropicProvider implements AIProvider {
     }
 
     if (options?.enablePromptCache) {
-      console.log(`[AnthropicProvider] ${cacheReadTokens} tokens do prefixo vieram do cache.`);
+      console.log(
+        `[AnthropicProvider] ${cacheReadTokens} tokens lidos do cache, ${cacheWriteTokens} tokens gravados no cache.`,
+      );
     }
-    return cacheReadTokens;
+    return {
+      cachedInputTokens: cacheReadTokens,
+      cacheWriteTokens,
+      totalInputTokens: freshInputTokens + cacheReadTokens + cacheWriteTokens,
+    };
   }
 
   async generateStructuredContent(

@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /* global Office, window, process */
 
 const BACKEND_URL = process.env.BACKEND_URL || "";
 
-// M4.6: heartbeat bem mais frequente que o TTL do servidor (padrão 10 min)
-// pra tolerar alguns heartbeats perdidos (rede instável, painel em segundo
-// plano) sem que a app session expire enquanto a instância do Word
+// M4.6: heartbeat bem mais frequente que o TTL rolante do servidor (padrão
+// 10 min) pra tolerar alguns heartbeats perdidos (rede instável, painel em
+// segundo plano) sem que a app session expire enquanto a instância do Word
 // continua aberta de verdade.
 const HEARTBEAT_INTERVAL_MS = 3 * 60 * 1000;
 
@@ -30,8 +30,16 @@ const getDocId = (): string | null => {
 // painel, exatamente pra diferenciar instâncias). Vincula o chat e os
 // caches correspondentes a essa instância, sem impor nenhum limite de
 // quantidade — só o saldo de créditos da conta limita o uso.
+//
+// M4.7: o servidor limita cada app session a 1h de duração absoluta — a
+// partir daí, nenhum heartbeat renova mais, mesmo que o Word continue
+// aberto. Este hook detecta isso (heartbeat retornando não-ok) e registra
+// uma app session nova de forma transparente: a conversa visível não
+// depende do appSessionId (fica em chatCache, isolada por conta+documento),
+// então o usuário nunca percebe a troca.
 export const useAppSession = ({ sessionToken, isOnline }: UseAppSessionProps) => {
   const [appSessionId, setAppSessionId] = useState<string | null>(null);
+  const [renewGeneration, setRenewGeneration] = useState(0);
   const appSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -47,11 +55,11 @@ export const useAppSession = ({ sessionToken, isOnline }: UseAppSessionProps) =>
     // o registro pra sempre (documentId nunca mais reavaliado, já que não é
     // dependência do efeito) — o usuário ficava bloqueado indefinidamente ao
     // tentar iniciar o chat.
-    const attemptRegister = () => {
+    const register = () => {
       if (cancelled) return;
       const documentId = getDocId();
       if (!documentId) {
-        retryTimer = window.setTimeout(attemptRegister, 500);
+        retryTimer = window.setTimeout(register, 500);
         return;
       }
 
@@ -70,46 +78,71 @@ export const useAppSession = ({ sessionToken, isOnline }: UseAppSessionProps) =>
           appSessionIdRef.current = data.appSessionId;
         })
         .catch(() => {
-          // Best-effort: se o registro falhar, useDocumentChat trata
-          // appSessionId nulo como "ação bloqueada" até uma próxima tentativa
-          // (troca de sessionToken/isOnline dispara o efeito de novo).
+          // Falha de rede/servidor no registro inicial — sem retry aqui, o
+          // chat ficava bloqueado ("ação bloqueada") até o usuário trocar
+          // de conta ou conectividade, já que o heartbeat (a única outra
+          // coisa que tentaria de novo) só reage a heartbeat FALHO de uma
+          // sessão que já existe — nunca ajuda quando o registro em si
+          // nunca chegou a acontecer. Tenta de novo em breve.
+          if (!cancelled) retryTimer = window.setTimeout(register, 5_000);
         });
     };
 
-    attemptRegister();
+    const heartbeat = () => {
+      const currentId = appSessionIdRef.current;
+      if (!currentId) {
+        // Nunca registrou (ou a última tentativa falhou e o retryTimer se
+        // perdeu por algum motivo) — o heartbeat funciona como uma rede de
+        // segurança adicional pra tentar de novo, não só o retryTimer.
+        register();
+        return;
+      }
+
+      void fetch(`${BACKEND_URL}/api/v1/app-sessions/${currentId}/heartbeat`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      })
+        .then((response) => {
+          if (cancelled || response.ok) return;
+          // M4.7: heartbeat rejeitado (404 — teto absoluto de 1h atingido,
+          // ou a sessão já não existe por outro motivo). Registra uma app
+          // session nova imediatamente, em vez de continuar batendo numa
+          // sessão morta até o usuário notar o chat bloqueado.
+          appSessionIdRef.current = null;
+          setAppSessionId(null);
+          register();
+        })
+        .catch(() => {
+          // Falha de rede pontual — não força reconexão aqui; a janela
+          // rolante do servidor (bem maior que este intervalo) tolera
+          // algumas falhas seguidas antes de expirar de verdade.
+        });
+    };
+
+    register();
+    const heartbeatInterval = window.setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
 
     return () => {
       cancelled = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      window.clearInterval(heartbeatInterval);
     };
-  }, [sessionToken, isOnline]);
+  }, [sessionToken, isOnline, renewGeneration]);
 
   useEffect(() => {
-    if (!appSessionId || !sessionToken) return undefined;
-
-    const interval = window.setInterval(() => {
-      void fetch(`${BACKEND_URL}/api/v1/app-sessions/${appSessionId}/heartbeat`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${sessionToken}` },
-      }).catch(() => {
-        // Best-effort — o TTL do servidor é quem garante o encerramento
-        // real da instância, não o heartbeat em si.
-      });
-    }, HEARTBEAT_INTERVAL_MS);
-
-    return () => window.clearInterval(interval);
-  }, [appSessionId, sessionToken]);
-
-  useEffect(() => {
-    if (!appSessionId || !sessionToken) return undefined;
+    if (!sessionToken) return undefined;
 
     // Fechamento explícito, só uma otimização: o Office.js não garante rodar
     // JS quando a instância do Word é encerrada (o WebView2 pode ser
     // derrubado sem chance de completar um fetch) — por isso é best-effort,
     // e a garantia de fato é o TTL por heartbeat no backend. `sendBeacon` não
     // suporta DELETE, então usa `fetch` com `keepalive` (sobrevive à
-    // navegação/descarregamento da página, diferente de um fetch comum).
+    // navegação/descarregamento da página, diferente de um fetch comum). Lê
+    // `appSessionIdRef` (não o state) pra sempre pegar o id mais recente,
+    // mesmo que uma renovação transparente tenha trocado o id no meio da
+    // sessão.
     const closeNow = () => {
+      if (!appSessionIdRef.current) return;
       void fetch(`${BACKEND_URL}/api/v1/app-sessions/${appSessionIdRef.current}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${sessionToken}` },
@@ -119,7 +152,13 @@ export const useAppSession = ({ sessionToken, isOnline }: UseAppSessionProps) =>
 
     window.addEventListener("beforeunload", closeNow);
     return () => window.removeEventListener("beforeunload", closeNow);
-  }, [appSessionId, sessionToken]);
+  }, [sessionToken]);
 
-  return { appSessionId };
+  const renewAppSession = useCallback(() => {
+    appSessionIdRef.current = null;
+    setAppSessionId(null);
+    setRenewGeneration((generation) => generation + 1);
+  }, []);
+
+  return { appSessionId, renewAppSession };
 };

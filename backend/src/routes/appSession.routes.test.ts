@@ -9,6 +9,7 @@ const ACCOUNT_ID = "0f2bbf0f-15af-43e7-83f2-c1ee467f09a1";
 const createTestApp = () => {
   const service = createAppSessionService({
     ttlMs: 1_000,
+    maxDurationMs: 1_000_000,
     now: () => 1_000,
     randomUUID: (() => {
       let n = 0;
@@ -16,6 +17,7 @@ const createTestApp = () => {
     })(),
     scheduleExpiration: () => 1,
     cancelExpiration: () => undefined,
+    onSessionEnd: () => undefined,
   });
   const app = new Application();
   const root = new Router();

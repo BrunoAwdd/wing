@@ -22,6 +22,7 @@ interface UseDocumentChatProps {
   // /chat/start e /chat/message, senão o backend não sabe vincular a
   // sessão de chat a uma instância específica.
   appSessionId: string | null;
+  renewAppSession: () => void;
 }
 
 // Função auxiliar para ler o documento inteiro como texto puro
@@ -53,12 +54,14 @@ export const useDocumentChat = ({
   qualityLevel,
   accountEmail,
   appSessionId,
+  renewAppSession,
 }: UseDocumentChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const docIdRef = useRef<string | null>(null);
+  const appSessionIdRef = useRef<string | null>(appSessionId);
   // Marca a conta dona do conteúdo atual de `messages` — atualizado sempre
   // que `messages` é setado por algo que sabemos ser dessa conta. O efeito
   // de persistência só salva se isso bater com `accountEmail` atual, senão
@@ -113,6 +116,22 @@ export const useDocumentChat = ({
     if (messagesAccountRef.current !== accountEmail) return;
     void saveConversation(accountEmail, docIdRef.current, messages);
   }, [messages, accountEmail]);
+
+  // M4.7: appSessionId pode mudar por trás das cortinas — useAppSession.ts
+  // registra uma app session nova, de forma transparente, quando o teto
+  // absoluto de 1h é atingido (heartbeats param de renovar a partir daí).
+  // Sem isto, `sessionId` continuava apontando pra uma sessão de chat
+  // vinculada à app session antiga: a próxima mensagem batia em
+  // `app_session_expired` no backend (a app session dona daquele chat já
+  // não existe mais) e o usuário via "feche e reabra o painel" mesmo com a
+  // renovação já tendo acontecido nos bastidores. Invalida só o VÍNCULO de
+  // sessão — a conversa visível (`messages`) não é tocada — e
+  // `ensureSession()` relinca silenciosamente com a app session atual na
+  // próxima mensagem, igual ao fluxo de restaurar do cache local.
+  useEffect(() => {
+    appSessionIdRef.current = appSessionId;
+    setSessionId(null);
+  }, [appSessionId]);
 
   const startAnalysis = useCallback(async () => {
     if (!isOnline || !sessionToken || !appSessionId) {
@@ -171,9 +190,12 @@ export const useDocumentChat = ({
   // o contexto completamente. O backend compacta pro mesmo limite de janela
   // usado durante a conversa, então isso nunca vira "reenviar histórico
   // ilimitado" (gate de saída do M4.5).
-  const ensureSession = useCallback(async (): Promise<string | null> => {
-    if (sessionId) return sessionId;
-    if (!isOnline || !sessionToken || !appSessionId) {
+  const ensureSession = useCallback(async (
+    targetAppSessionId: string | null = appSessionId,
+    forceNew = false,
+  ): Promise<string | null> => {
+    if (sessionId && !forceNew) return sessionId;
+    if (!isOnline || !sessionToken || !targetAppSessionId) {
       setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
       return null;
     }
@@ -193,7 +215,7 @@ export const useDocumentChat = ({
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${sessionToken}`,
-        "X-Wing-App-Session": appSessionId,
+        "X-Wing-App-Session": targetAppSessionId,
       },
       body: JSON.stringify({ documentText, priorMessages }),
     });
@@ -229,28 +251,57 @@ export const useDocumentChat = ({
       setIsLoading(true);
       setError(null);
 
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/v1/chat/message`, {
+      const requestMessage = (targetSessionId: string, targetAppSessionId: string | null) =>
+        fetch(`${BACKEND_URL}/api/v1/chat/message`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${sessionToken}`,
-            "X-Wing-App-Session": appSessionId || "",
+            "X-Wing-App-Session": targetAppSessionId || "",
           },
-          body: JSON.stringify({ sessionId: activeSessionId, message, qualityLevel }),
+          body: JSON.stringify({ sessionId: targetSessionId, message, qualityLevel }),
         });
+
+      try {
+        const attemptedAppSessionId = appSessionId;
+        let response = await requestMessage(activeSessionId, attemptedAppSessionId);
 
         if (!response.ok || !response.body) {
           const errorData = await response.json();
-          // M4.6: a app session pode ter expirado no meio da conversa (Word
-          // fechado, heartbeat parou) mesmo com o chat ainda dentro do seu
-          // próprio TTL — distinto de um erro genérico, pede reabrir o painel
-          // em vez de só tentar de novo.
+          // M4.6/M4.7: a app session pode ter expirado no meio da conversa
+          // (Word fechado, heartbeat parou, ou uma renovação transparente
+          // aconteceu exatamente enquanto esta mensagem estava em voo) —
+          // distinto de um erro genérico. useAppSession.ts já deve ter
+          // registrado (ou estar registrando) uma app session nova por
+          // conta própria; só invalida o vínculo de sessão aqui pra
+          // `ensureSession()` relincar na próxima tentativa, sem pedir pro
+          // usuário fechar/reabrir o painel manualmente.
           if (errorData.code === "app_session_expired") {
             setSessionId(null);
-            throw new Error("Sua sessão desta instância expirou. Feche e reabra o painel.");
+            renewAppSession();
+            const deadline = Date.now() + 15_000;
+            while (
+              (!appSessionIdRef.current || appSessionIdRef.current === attemptedAppSessionId) &&
+              Date.now() < deadline
+            ) {
+              await new Promise((resolve) => window.setTimeout(resolve, 200));
+            }
+            const renewedAppSessionId = appSessionIdRef.current;
+            if (!renewedAppSessionId || renewedAppSessionId === attemptedAppSessionId) {
+              throw new Error("Não foi possível renovar a sessão automaticamente.");
+            }
+            const renewedChatSessionId = await ensureSession(renewedAppSessionId, true);
+            if (!renewedChatSessionId) {
+              throw new Error("Não foi possível retomar a conversa.");
+            }
+            response = await requestMessage(renewedChatSessionId, renewedAppSessionId);
+            if (!response.ok || !response.body) {
+              const retryError = await response.json();
+              throw new Error(retryError.error || "Falha ao enviar a mensagem após renovar a sessão.");
+            }
+          } else {
+            throw new Error(errorData.error || "Falha ao enviar a mensagem.");
           }
-          throw new Error(errorData.error || "Falha ao enviar a mensagem.");
         }
 
         const reader = response.body.getReader();
@@ -278,7 +329,7 @@ export const useDocumentChat = ({
         setIsLoading(false);
       }
     },
-    [ensureSession, sessionToken, qualityLevel, accountEmail, appSessionId]
+    [ensureSession, sessionToken, qualityLevel, accountEmail, appSessionId, renewAppSession]
   );
 
   const clearConversation = useCallback(() => {

@@ -4,6 +4,7 @@ import { anthropicProvider } from "../providers/anthropicProvider.ts";
 import {
   AIProvider,
   AIRequestOptions,
+  CacheUsage,
 } from "../providers/providerInterface.ts";
 import { withRetry } from "../providers/withRetry.ts";
 
@@ -40,7 +41,7 @@ export const generateChatStream = (
   prompt: string,
   history: any[],
   options?: AIRequestOptions
-): AsyncGenerator<string, number | void, unknown> => {
+): AsyncGenerator<string, CacheUsage | void, unknown> => {
   const provider = getProviderForModel(options?.model);
   return provider.generateChatStream(prompt, history, options);
 };

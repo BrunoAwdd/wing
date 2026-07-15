@@ -58,6 +58,7 @@ const createTestApp = (
             createdAt: 0,
             lastHeartbeatAt: 0,
             expiresAt: Number.MAX_SAFE_INTEGER,
+            absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
             timeoutId: 1,
           }
           : null,
@@ -607,7 +608,7 @@ Deno.test("M4.5 chat: GPT/Claude pedem cache de prompt implícito ao provedor (e
   assertEquals(receivedOptions[0], { enablePromptCache: true, model: "gpt-5.6-luna" });
 });
 
-Deno.test("M4.5 chat: telemetria de cache usa a contagem real de tokens do provedor, não 'um cache foi tentado'", async () => {
+Deno.test("M4.7 chat: telemetria de cache usa a repartição real de tokens do provedor e créditos economizados, não 'um cache foi tentado'", async () => {
   const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
   const app = createTestApp({
     trackEvent: (eventName, properties) => {
@@ -615,8 +616,8 @@ Deno.test("M4.5 chat: telemetria de cache usa a contagem real de tokens do prove
     },
     generateStream: () => {
       // deno-lint-ignore require-yield
-      return (async function* (): AsyncGenerator<string, number, unknown> {
-        return 350; // simula tokens reais economizados, reportados pelo provedor
+      return (async function* (): AsyncGenerator<string, { cachedInputTokens: number; cacheWriteTokens: number }, unknown> {
+        return { cachedInputTokens: 350, cacheWriteTokens: 0 }; // simula economia real reportada pelo provedor
       })();
     },
   });
@@ -630,16 +631,23 @@ Deno.test("M4.5 chat: telemetria de cache usa a contagem real de tokens do prove
   }, token))!.text();
 
   const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
-  assertEquals(cacheEvent?.properties, { cached: 1, cached_tokens: 350, provider: "openai" });
+  // gpt-5.6-luna: inputPerThousandTokens=3. 350 tokens cheios = ceil(350*3/1000)=2;
+  // com 50% de desconto = ceil(2*0.5)=1. creditsSaved = 2-1 = 1.
+  assertEquals(cacheEvent?.properties, {
+    cached: 1,
+    cached_tokens: 350,
+    provider: "openai",
+    credits_saved: 1,
+  });
 });
 
-Deno.test("M4.5 chat: sem hit real, telemetria registra cached:0 e cached_tokens:0 mesmo com cache tentado", async () => {
+Deno.test("M4.7 chat: sem hit real, telemetria registra cached:0, cached_tokens:0 e credits_saved:0 mesmo com cache tentado", async () => {
   const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
   const app = createTestApp({
     trackEvent: (eventName, properties) => {
       trackedEvents.push({ name: eventName, properties });
     },
-    generateStream: () => streamFrom(["sem cache"]), // retorna void/0 por padrão
+    generateStream: () => streamFrom(["sem cache"]), // retorna void por padrão
   });
   const token = await withSession();
   const sessionId = await startSession(app, token);
@@ -651,7 +659,83 @@ Deno.test("M4.5 chat: sem hit real, telemetria registra cached:0 e cached_tokens
   }, token))!.text();
 
   const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
-  assertEquals(cacheEvent?.properties, { cached: 0, cached_tokens: 0, provider: "openai" });
+  assertEquals(cacheEvent?.properties, {
+    cached: 0,
+    cached_tokens: 0,
+    provider: "openai",
+    credits_saved: 0,
+  });
+});
+
+Deno.test("M4.7 chat: escrita de cache (Anthropic) entra na cobrança final e na telemetria, mesmo sem hit de leitura", async () => {
+  const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
+  let settledCharge: { credits: number; cacheWriteTokens?: number } | undefined;
+  const app = createTestApp({
+    getEntitlement: async () => ({ plan: "pro", status: "active" }), // "profundo" exige plano pago
+    trackEvent: (eventName, properties) => {
+      trackedEvents.push({ name: eventName, properties });
+    },
+    settleCredits: async (_reservationId, charge) => {
+      settledCharge = charge as typeof settledCharge;
+      return charge.credits;
+    },
+    generateStream: () => {
+      // deno-lint-ignore require-yield
+      return (async function* (): AsyncGenerator<string, { cachedInputTokens: number; cacheWriteTokens: number }, unknown> {
+        return { cachedInputTokens: 0, cacheWriteTokens: 500 };
+      })();
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  await (await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "profundo",
+  }, token))!.text();
+
+  const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
+  assertEquals(cacheEvent?.properties, {
+    cached: 0, // escrita não é "hit" — só leitura conta como cache usado com desconto
+    cached_tokens: 500,
+    provider: "anthropic",
+    credits_saved: 0, // escrita é cobrada à tarifa cheia, sem desconto
+  });
+  assertEquals(settledCharge?.cacheWriteTokens, 500);
+});
+
+Deno.test("M4.7 chat: totalInputTokens real do provedor substitui a estimativa por tamanho de texto na liquidação", async () => {
+  let settledCharge: { inputTokens: number } | undefined;
+  const app = createTestApp({
+    settleCredits: async (_reservationId, charge) => {
+      settledCharge = charge as typeof settledCharge;
+      return charge.credits;
+    },
+    generateStream: () => {
+      // deno-lint-ignore require-yield
+      return (async function* (): AsyncGenerator<
+        string,
+        { cachedInputTokens: number; cacheWriteTokens: number; totalInputTokens: number },
+        unknown
+      > {
+        // Bem maior do que a estimativa por tamanho de texto geraria pra
+        // uma mensagem tão curta — prova que o valor real do provedor
+        // venceu a heurística, não só coexistiu com ela.
+        return { cachedInputTokens: 0, cacheWriteTokens: 0, totalInputTokens: 50_000 };
+      })();
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  await (await request(app, "/message", {
+    sessionId,
+    message: "Oi",
+    qualityLevel: "rapido",
+  }, token))!.text();
+
+  assertEquals(settledCharge?.inputTokens, 50_000);
 });
 
 Deno.test("M4.6 chat: /start exige X-Wing-App-Session", async () => {
@@ -695,6 +779,7 @@ Deno.test("M4.6 chat: /message revalida app session e falha se ela expirou no me
             createdAt: 0,
             lastHeartbeatAt: 0,
             expiresAt: Number.MAX_SAFE_INTEGER,
+            absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
             timeoutId: 1,
           }
           : null,
@@ -727,6 +812,7 @@ Deno.test("M4.6 chat: nenhum limite de sessões simultâneas por conta — três
             createdAt: 0,
             lastHeartbeatAt: 0,
             expiresAt: Number.MAX_SAFE_INTEGER,
+            absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
             timeoutId: 1,
           }
           : null,

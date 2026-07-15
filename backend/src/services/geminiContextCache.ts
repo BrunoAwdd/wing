@@ -34,6 +34,11 @@ export interface CacheClient {
     systemInstruction: string;
     ttlSeconds: number;
   }): Promise<{ name: string } | null>;
+  // M4.7: encerrar a app session dona de um cache precisa parar de pagar
+  // por ele no provedor imediatamente, em vez de esperar o TTL vencer
+  // sozinho — best-effort (mesmo padrão de `create`), quem chama nunca
+  // trata falha de delete como erro fatal.
+  delete(name: string): Promise<void>;
 }
 
 const hashHex = async (text: string): Promise<string> => {
@@ -100,17 +105,30 @@ export const realCacheClient: CacheClient = {
       return null;
     }
   },
+  delete: async (name) => {
+    await getCacheManager().delete(name);
+  },
 };
 
 export interface GeminiContextCacheDependencies {
   client: CacheClient;
   now: () => number;
+  sleep?: (delayMs: number) => Promise<void>;
+  createTimeoutMs?: number;
 }
 
 const defaultDependencies: GeminiContextCacheDependencies = {
   client: realCacheClient,
   now: Date.now,
+  sleep: (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)),
+  createTimeoutMs: 30_000,
 };
+
+// M4.7: janela de tolerância pra uma `create()` em voo terminar depois que
+// a app session já encerrou — best-effort e generosa de propósito (uma
+// chamada real ao Gemini não deveria levar nem perto disso), só existe pra
+// nunca deixar um tombstone crescendo pra sempre no mapa.
+const CREATE_RACE_TOMBSTONE_MS = 10 * 60 * 1000;
 
 // Fábrica (não singleton no módulo) pra permitir um mapa isolado por teste
 // e injeção do client — mesmo padrão de DI usado nos routers deste projeto.
@@ -118,6 +136,44 @@ export const createGeminiContextCache = (
   dependencies: GeminiContextCacheDependencies = defaultDependencies,
 ) => {
   const cache = new Map<string, CachedPrefix>();
+  const sleep = dependencies.sleep ?? defaultDependencies.sleep!;
+  const createTimeoutMs = dependencies.createTimeoutMs ??
+    defaultDependencies.createTimeoutMs!;
+  // M4.7: app sessions que já terminaram, mas podem ainda ter um
+  // `client.create()` em voo (iniciado antes do encerramento) — sem isto,
+  // `invalidateAppSession()` só limpa o que já está no mapa NO MOMENTO em
+  // que roda; uma criação que termina DEPOIS insere uma entrada nova pra
+  // uma sessão que já não existe mais, e essa entrada nunca é limpa (fica
+  // paga no Gemini até o próprio TTL do cache vencer sozinho).
+  const endedAppSessions = new Map<string, number>();
+
+  const pruneEndedAppSessions = (now: number) => {
+    for (const [id, expiresAt] of endedAppSessions) {
+      if (expiresAt <= now) endedAppSessions.delete(id);
+    }
+  };
+
+  const deleteRemote = async (name: string, remoteExpiresAt: number) => {
+    const delays = [0, 1_000, 5_000, 30_000];
+    for (const delay of delays) {
+      if (delay > 0) await sleep(delay);
+      try {
+        await dependencies.client.delete(name);
+        return;
+      } catch (error) {
+        if (
+          dependencies.now() + (delays[delays.indexOf(delay) + 1] ?? 0) >=
+            remoteExpiresAt
+        ) {
+          console.error(
+            "[GeminiContextCache] Falha ao excluir cache remoto antes do TTL:",
+            error,
+          );
+          return;
+        }
+      }
+    }
+  };
 
   return {
     // Retorna o nome do conteúdo em cache (existente ou recém-criado), ou
@@ -146,20 +202,72 @@ export const createGeminiContextCache = (
         return { name: existing.name, hit: true };
       }
 
-      const created = await dependencies.client.create({
+      const remoteExpiresAt = now + params.ttlSeconds * 1000;
+      const createPromise = dependencies.client.create({
         model: params.model,
         documentText: params.documentText,
         systemInstruction: params.systemInstruction,
         ttlSeconds: params.ttlSeconds,
       });
+      let timeoutId: number | undefined;
+      const timedOut = Symbol("cache-create-timeout");
+      const timeoutPromise = new Promise<typeof timedOut>((resolve) => {
+        timeoutId = setTimeout(() => resolve(timedOut), createTimeoutMs);
+      });
+      const createResult = await Promise.race([createPromise, timeoutPromise]);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (createResult === timedOut) {
+        // O SDK não oferece abort para esta operação. Se ela concluir
+        // depois do timeout, a continuação ainda elimina o cache criado.
+        void createPromise.then((late) => {
+          if (late) return deleteRemote(late.name, remoteExpiresAt);
+        }).catch(() => {});
+        return null;
+      }
+      const created = createResult;
       if (!created) return null;
+
+      // M4.7: a app session pode ter terminado ENQUANTO `create()` estava
+      // em voo — `invalidateAppSession()` já rodou e não achou nada pra
+      // limpar no mapa (esta entrada nem existia ainda). Sem esta checagem,
+      // a entrada seria inserida normalmente e ficaria paga no Gemini até o
+      // próprio TTL vencer sozinho, mesmo com a sessão dona dela já morta.
+      const nowAfterCreate = dependencies.now();
+      pruneEndedAppSessions(nowAfterCreate);
+      if (endedAppSessions.has(params.appSessionId)) {
+        await deleteRemote(created.name, remoteExpiresAt);
+        return null;
+      }
 
       cache.set(key, {
         name: created.name,
-        expiresAt: now + params.ttlSeconds * 1000,
+        expiresAt: remoteExpiresAt,
         appSessionId: params.appSessionId,
       });
       return { name: created.name, hit: false };
+    },
+
+    // M4.7: chamado quando uma app session termina (TTL, teto absoluto ou
+    // fechamento explícito) — sem isso, o cache remoto de uma instância
+    // encerrada continuava armazenado (e potencialmente cobrado pelo
+    // provedor) até o próprio TTL do cache vencer, mesmo que ninguém mais
+    // pudesse reutilizá-lo (a chave já inclui `appSessionId`, então nenhuma
+    // outra sessão bateria nessa entrada de qualquer forma). Best-effort e
+    // fire-and-forget do ponto de vista de quem chama. Também marca um
+    // tombstone (ver `endedAppSessions` acima) pra cobrir uma `create()`
+    // desta mesma sessão que ainda esteja em voo neste instante.
+    invalidateAppSession: async (appSessionId: string): Promise<void> => {
+      const now = dependencies.now();
+      endedAppSessions.set(appSessionId, now + CREATE_RACE_TOMBSTONE_MS);
+      pruneEndedAppSessions(now);
+
+      const toDelete = Array.from(cache.entries()).filter(
+        ([, entry]) => entry.appSessionId === appSessionId,
+      );
+      for (const [key, entry] of toDelete) {
+        cache.delete(key);
+        await deleteRemote(entry.name, entry.expiresAt);
+      }
     },
 
     // Exposto só pra teste/inspeção — o mapa em si já se auto-invalida por
