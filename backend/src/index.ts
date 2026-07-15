@@ -1,4 +1,4 @@
-import { Application, Context, oakCors, Router } from "./deps.ts";
+import { Application, Context, Router } from "./deps.ts";
 import logger from "./services/logger.ts";
 import chatRouter from "./routes/chat.routes.ts";
 import appSessionRouter from "./routes/appSession.routes.ts";
@@ -8,6 +8,7 @@ import telemetryRouter from "./routes/telemetry.routes.ts";
 import authRouter from "./routes/auth.routes.ts";
 import magicLinkAuthRouter from "./routes/magicLinkAuth.routes.ts";
 import billingRouter from "./routes/billing.routes.ts";
+import { resolveCorsOrigins } from "./config/corsConfig.ts";
 
 // Dependências que estavam em api.routes.ts
 import { apiLimiter } from "./middlewares/rateLimiter.ts";
@@ -23,6 +24,11 @@ import {
 
 // --- Configuração de Ambiente ---
 const port = parseInt(Deno.env.get("PORT") || "3005");
+const isProduction = Deno.env.get("NODE_ENV") === "production";
+const corsOrigins = resolveCorsOrigins(
+  Deno.env.get("CORS_ALLOWED_ORIGINS"),
+  isProduction,
+);
 
 // --- Inicialização da Aplicação ---
 const app = new Application();
@@ -35,20 +41,33 @@ app.use(async (ctx: Context, next: () => Promise<unknown>) => {
   await next();
 });
 
-// CORS Rígido (RFC 012)
-app.use(
-  oakCors({
-    origin: [
-      "https://localhost:3000", // Frontend Dev
-      "https://localhost:3002", // Frontend Dev (Webpack default)
-      "https://wing.ai", // Prod
-      "null", // Office.js (Local)
-    ],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Wing-App-Session"],
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    optionsSuccessStatus: 200,
-  }),
-);
+// CORS restrito ao host do add-in. Produção falha na inicialização se a
+// allowlist oficial não tiver sido configurada.
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
+  const origin = ctx.request.headers.get("Origin");
+  if (!origin || !corsOrigins.includes(origin)) {
+    await next();
+    return;
+  }
+
+  ctx.response.headers.set("Access-Control-Allow-Origin", origin);
+  ctx.response.headers.append("Vary", "Origin");
+  ctx.response.headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Wing-App-Session",
+  );
+  ctx.response.headers.set(
+    "Access-Control-Allow-Methods",
+    "GET, POST, DELETE, OPTIONS",
+  );
+
+  if (ctx.request.method === "OPTIONS") {
+    ctx.response.status = 200;
+    return;
+  }
+
+  await next();
+});
 
 // Logger middleware
 app.use(async (ctx: Context, next: () => Promise<unknown>) => {
@@ -169,7 +188,7 @@ if (import.meta.main) {
 
   // Determine if we are in development (NODE_ENV=development)
   // Treat any environment that is NOT explicitly "production" as development
-  const isDev = Deno.env.get("NODE_ENV") !== "production";
+  const isDev = !isProduction;
 
   if (isDev) {
     // Development: use plain HTTP (no TLS) to avoid proxy EPROTO errors
