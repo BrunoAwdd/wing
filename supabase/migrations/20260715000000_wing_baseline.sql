@@ -1,45 +1,10 @@
--- Wing database baseline.
---
--- Browser clients use Supabase only for Auth. Product data is accessed solely
--- by the Wing backend with service_role, so managed tables intentionally have
--- RLS enabled without client policies.
+-- Wing database baseline for new environments.
+-- Product data is backend-only; browser clients use Supabase only for Auth.
 
 create extension if not exists "uuid-ossp";
-create schema if not exists wing;
+create schema wing;
 
--- Upgrade path for environments created by the former split migration tree.
--- Never guess which copy is authoritative if both schemas contain a table.
-do $$
-declare
-  table_name text;
-  product_tables constant text[] := array[
-    'accounts',
-    'subscriptions',
-    'licences',
-    'usage_monthly',
-    'webhook_events',
-    'telemetry_events',
-    'refresh_tokens',
-    'usage_credit_reservations'
-  ];
-begin
-  foreach table_name in array product_tables loop
-    if to_regclass(format('wing.%I', table_name)) is not null
-      and to_regclass(format('public.%I', table_name)) is not null then
-      raise exception
-        'Both wing.% and public.% exist; reconcile them before applying the Wing baseline.',
-        table_name, table_name;
-    end if;
-
-    if to_regclass(format('wing.%I', table_name)) is null
-      and to_regclass(format('public.%I', table_name)) is not null then
-      execute format('alter table public.%I set schema wing', table_name);
-    end if;
-  end loop;
-end
-$$;
-
-create table if not exists wing.accounts (
+create table wing.accounts (
   id uuid primary key default uuid_generate_v4(),
   email text unique not null,
   stripe_customer_id text unique,
@@ -47,152 +12,107 @@ create table if not exists wing.accounts (
   microsoft_tenant_id text,
   microsoft_object_id text,
   revoked_at timestamptz,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-alter table wing.accounts add column if not exists display_name text;
-alter table wing.accounts add column if not exists microsoft_tenant_id text;
-alter table wing.accounts add column if not exists microsoft_object_id text;
-alter table wing.accounts add column if not exists revoked_at timestamptz;
-
-create unique index if not exists accounts_microsoft_identity_uidx
+create unique index accounts_microsoft_identity_uidx
   on wing.accounts (microsoft_tenant_id, microsoft_object_id)
   where microsoft_tenant_id is not null and microsoft_object_id is not null;
-create index if not exists idx_accounts_email on wing.accounts(email);
-create index if not exists idx_accounts_stripe_customer_id
-  on wing.accounts(stripe_customer_id);
 
-create table if not exists wing.subscriptions (
+create table wing.subscriptions (
   id uuid primary key default uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete cascade not null,
   external_subscription_id text unique not null,
   provider text not null check (provider in ('stripe', 'microsoft')),
   plan text not null check (plan in ('free', 'pro', 'team')),
-  status text not null,
+  status text not null check (status in (
+    'trialing',
+    'active',
+    'past_due',
+    'canceled',
+    'incomplete',
+    'incomplete_expired',
+    'unpaid',
+    'paused'
+  )),
   current_period_end timestamptz not null,
   price_id text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (account_id)
 );
 
-alter table wing.subscriptions
-  drop constraint if exists subscriptions_status_check;
-alter table wing.subscriptions
-  add constraint subscriptions_status_check check (status in (
-    'trialing', 'active', 'past_due', 'canceled', 'incomplete',
-    'incomplete_expired', 'unpaid', 'paused'
-  ));
-create index if not exists idx_subscriptions_external_subscription_id
-  on wing.subscriptions(external_subscription_id);
-
-create table if not exists wing.licences (
-  id uuid primary key default uuid_generate_v4(),
-  account_id uuid references wing.accounts(id) on delete cascade not null,
-  key text unique not null,
-  plan text,
-  expires_at timestamptz,
-  revoked boolean default false,
-  created_at timestamptz default now()
-);
-create index if not exists idx_licences_key on wing.licences(key);
-
-create table if not exists wing.usage_monthly (
+create table wing.usage_monthly (
   id uuid primary key default uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete cascade not null,
   yyyymm int not null,
-  requests_count int default 0,
-  tokens_used bigint default 0,
+  requests_count int not null default 0,
+  tokens_used bigint not null default 0,
   credits_used bigint not null default 0,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
   unique (account_id, yyyymm)
 );
-alter table wing.usage_monthly
-  add column if not exists credits_used bigint not null default 0;
-create index if not exists idx_usage_monthly_account_yyyymm
-  on wing.usage_monthly(account_id, yyyymm);
 
-create table if not exists wing.webhook_events (
+create table wing.webhook_events (
   id text primary key,
   type text not null,
-  received_at timestamptz default now(),
+  received_at timestamptz not null default now(),
   payload jsonb
 );
 
-create table if not exists wing.telemetry_events (
+create table wing.telemetry_events (
   id uuid primary key default uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete set null,
-  event_name text not null,
-  properties jsonb not null default '{}'::jsonb,
-  created_at timestamptz default now()
+  event_name text not null check (event_name in (
+    'panel_opened',
+    'suggestion_rejected',
+    'suggestion_accepted_all',
+    'suggestion_rejected_all',
+    'suggestion_accepted_single',
+    'suggestion_rejected_single',
+    'suggestion_rated',
+    'suggestion_failed',
+    'memory_sync_completed',
+    'usage_incremented',
+    'prompt_sent',
+    'prompt_completed',
+    'prompt_failed',
+    'magic_link_requested',
+    'magic_link_verified',
+    'magic_link_failed',
+    'session_refreshed',
+    'office_sso_success',
+    'office_sso_failed',
+    'checkout_started',
+    'checkout_failed',
+    'subscription_started',
+    'subscription_updated',
+    'subscription_canceled',
+    'subscription_paused',
+    'subscription_resumed',
+    'chat_session_started',
+    'chat_message_completed',
+    'chat_message_interrupted',
+    'chat_context_cache_used'
+  )),
+  properties jsonb not null default '{}'::jsonb
+    check (jsonb_typeof(properties) = 'object')
+    check (octet_length(properties::text) <= 2048),
+  created_at timestamptz not null default now()
 );
-create index if not exists telemetry_events_account_id_idx
-  on wing.telemetry_events(account_id);
-create index if not exists telemetry_events_event_name_idx
-  on wing.telemetry_events(event_name);
-create index if not exists telemetry_events_created_at_idx
-  on wing.telemetry_events(created_at);
 
-delete from wing.telemetry_events where event_name not in (
-  'panel_opened', 'suggestion_rejected', 'suggestion_accepted_all',
-  'suggestion_rejected_all', 'suggestion_accepted_single',
-  'suggestion_rejected_single', 'suggestion_rated', 'suggestion_failed',
-  'memory_sync_completed', 'usage_incremented', 'prompt_sent',
-  'prompt_completed', 'prompt_failed', 'magic_link_requested',
-  'magic_link_verified', 'magic_link_failed', 'session_refreshed',
-  'office_sso_success', 'office_sso_failed', 'checkout_started',
-  'checkout_failed', 'subscription_started', 'subscription_updated',
-  'subscription_canceled', 'subscription_paused', 'subscription_resumed',
-  'chat_session_started', 'chat_message_completed',
-  'chat_message_interrupted', 'chat_context_cache_used'
-);
-delete from wing.telemetry_events
-where jsonb_typeof(properties) <> 'object'
-   or octet_length(properties::text) > 2048;
-
-alter table wing.telemetry_events
-  drop constraint if exists telemetry_events_event_name_check;
-alter table wing.telemetry_events
-  add constraint telemetry_events_event_name_check check (event_name in (
-    'panel_opened', 'suggestion_rejected', 'suggestion_accepted_all',
-    'suggestion_rejected_all', 'suggestion_accepted_single',
-    'suggestion_rejected_single', 'suggestion_rated', 'suggestion_failed',
-    'memory_sync_completed', 'usage_incremented', 'prompt_sent',
-    'prompt_completed', 'prompt_failed', 'magic_link_requested',
-    'magic_link_verified', 'magic_link_failed', 'session_refreshed',
-    'office_sso_success', 'office_sso_failed', 'checkout_started',
-    'checkout_failed', 'subscription_started', 'subscription_updated',
-    'subscription_canceled', 'subscription_paused', 'subscription_resumed',
-    'chat_session_started', 'chat_message_completed',
-    'chat_message_interrupted', 'chat_context_cache_used'
-  ));
-alter table wing.telemetry_events
-  drop constraint if exists telemetry_events_properties_object_check;
-alter table wing.telemetry_events
-  add constraint telemetry_events_properties_object_check
-  check (jsonb_typeof(properties) = 'object');
-alter table wing.telemetry_events
-  drop constraint if exists telemetry_events_properties_size_check;
-alter table wing.telemetry_events
-  add constraint telemetry_events_properties_size_check
-  check (octet_length(properties::text) <= 2048);
-
-create table if not exists wing.refresh_tokens (
+create table wing.refresh_tokens (
   id uuid primary key default uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete cascade not null,
   token_hash text unique not null,
   expires_at timestamptz not null,
   revoked_at timestamptz,
-  created_at timestamptz default now()
+  created_at timestamptz not null default now()
 );
-create index if not exists idx_refresh_tokens_account_id
-  on wing.refresh_tokens(account_id);
-create index if not exists idx_refresh_tokens_token_hash
-  on wing.refresh_tokens(token_hash);
 
-create table if not exists wing.usage_credit_reservations (
+create table wing.usage_credit_reservations (
   id uuid primary key,
   account_id uuid references wing.accounts(id) on delete cascade not null,
   yyyymm int not null,
@@ -204,13 +124,19 @@ create table if not exists wing.usage_credit_reservations (
   settled_at timestamptz,
   created_at timestamptz not null default now()
 );
-create index if not exists idx_usage_credit_reservations_account_month
+
+create index telemetry_events_account_id_idx
+  on wing.telemetry_events(account_id);
+create index telemetry_events_event_name_idx
+  on wing.telemetry_events(event_name);
+create index telemetry_events_created_at_idx
+  on wing.telemetry_events(created_at);
+create index idx_refresh_tokens_account_id
+  on wing.refresh_tokens(account_id);
+create index idx_usage_credit_reservations_account_month
   on wing.usage_credit_reservations(account_id, yyyymm);
 
-drop function if exists public.increment_usage_and_check_limit(uuid, int, int, int);
-drop function if exists wing.increment_usage_and_check_limit(uuid, int, int, int);
-
-create or replace function wing.reserve_usage_credits(
+create function wing.reserve_usage_credits(
   p_reservation_id uuid,
   p_account_id uuid,
   p_yyyymm int,
@@ -229,7 +155,11 @@ begin
   end if;
 
   insert into usage_monthly (
-    account_id, yyyymm, requests_count, tokens_used, credits_used
+    account_id,
+    yyyymm,
+    requests_count,
+    tokens_used,
+    credits_used
   ) values (p_account_id, p_yyyymm, 0, 0, 0)
   on conflict (account_id, yyyymm) do nothing;
 
@@ -244,9 +174,17 @@ begin
   end if;
 
   insert into usage_credit_reservations (
-    id, account_id, yyyymm, model, reserved_credits
+    id,
+    account_id,
+    yyyymm,
+    model,
+    reserved_credits
   ) values (
-    p_reservation_id, p_account_id, p_yyyymm, p_model, p_credits
+    p_reservation_id,
+    p_account_id,
+    p_yyyymm,
+    p_model,
+    p_credits
   );
 
   return query
@@ -259,7 +197,7 @@ begin
 end;
 $$;
 
-create or replace function wing.settle_usage_credits(
+create function wing.settle_usage_credits(
   p_reservation_id uuid,
   p_actual_credits bigint,
   p_input_tokens bigint,
@@ -315,89 +253,32 @@ begin
 end;
 $$;
 
--- Agents/Maestro and the old API-key prototype are not part of the product.
-drop table if exists wing.agents;
-drop table if exists public.agents;
-
-do $$
-declare
-  table_name text;
-  policy_record record;
-begin
-  foreach table_name in array array['users', 'api_keys', 'usage_rollup'] loop
-    if to_regclass(format('public.%I', table_name)) is not null then
-      execute format('alter table public.%I enable row level security', table_name);
-      execute format(
-        'revoke all on table public.%I from public, anon, authenticated',
-        table_name
-      );
-
-      for policy_record in
-        select policyname
-        from pg_policies
-        where schemaname = 'public' and tablename = table_name
-      loop
-        execute format(
-          'drop policy %I on public.%I',
-          policy_record.policyname,
-          table_name
-        );
-      end loop;
-    end if;
-  end loop;
-end
-$$;
-
 alter table wing.accounts enable row level security;
 alter table wing.subscriptions enable row level security;
-alter table wing.licences enable row level security;
 alter table wing.usage_monthly enable row level security;
 alter table wing.webhook_events enable row level security;
 alter table wing.telemetry_events enable row level security;
 alter table wing.refresh_tokens enable row level security;
 alter table wing.usage_credit_reservations enable row level security;
 
-do $$
-declare
-  policy_record record;
-begin
-  for policy_record in
-    select schemaname, tablename, policyname
-    from pg_policies
-    where schemaname = 'wing'
-  loop
-    execute format(
-      'drop policy %I on %I.%I',
-      policy_record.policyname,
-      policy_record.schemaname,
-      policy_record.tablename
-    );
-  end loop;
-end
-$$;
-
 revoke all on schema wing from public, anon, authenticated;
 revoke all on all tables in schema wing from public, anon, authenticated;
 revoke all on all sequences in schema wing from public, anon, authenticated;
 revoke all on all functions in schema wing from public, anon, authenticated;
-
 grant usage on schema wing to service_role;
 grant all on all tables in schema wing to service_role;
 grant all on all sequences in schema wing to service_role;
 grant execute on function wing.reserve_usage_credits(
-  uuid, uuid, int, text, bigint, bigint
+  uuid,
+  uuid,
+  int,
+  text,
+  bigint,
+  bigint
 ) to service_role;
 grant execute on function wing.settle_usage_credits(
-  uuid, bigint, bigint, bigint
+  uuid,
+  bigint,
+  bigint,
+  bigint
 ) to service_role;
-
-alter default privileges in schema wing
-  revoke all on tables from public, anon, authenticated;
-alter default privileges in schema wing
-  revoke all on sequences from public, anon, authenticated;
-alter default privileges in schema wing
-  revoke all on functions from public, anon, authenticated;
-alter default privileges in schema wing
-  grant all on tables to service_role;
-alter default privileges in schema wing
-  grant all on sequences to service_role;

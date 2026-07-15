@@ -13,10 +13,10 @@ baseline after it has been adopted by a remote environment.
 
 Before applying this consolidated history to an existing remote environment,
 compare its migration ledger with these files and repair the ledger deliberately.
-The former split history was squashed into the baseline and may have been
-executed manually without matching ledger entries. Do not run a blind `db push`
-against production until its existing objects and migration ledger have been
-reconciled with the baseline version.
+The baseline is intentionally for a clean environment and contains no repair
+logic for historical schemas. The former split migrations may have been applied
+manually in an existing environment. Reconcile that environment and its ledger
+separately; do not run the baseline over populated production tables.
 
 The application data plane is backend-only: the backend uses `service_role`,
 while browser clients use the anon key only for Supabase Auth. Product tables
