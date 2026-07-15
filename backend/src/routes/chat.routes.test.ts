@@ -74,6 +74,7 @@ const createTestApp = (
           : null,
     },
     isProviderAvailable: () => true,
+    isProduction: true,
     ...overrides,
   };
   const app = new Application();
@@ -578,6 +579,40 @@ Deno.test("chat: provedor sem API key retorna 503 antes de reservar créditos ou
   });
   assertEquals(reserveCalls, 0);
   assertEquals(providerCalls, 0);
+});
+
+Deno.test("chat: desenvolvimento usa Gemini quando o provedor resolvido não tem API key", async () => {
+  let reservedModel: string | undefined;
+  let executedModel: string | undefined;
+  const app = createTestApp({
+    isProduction: false,
+    isProviderAvailable: (model) => !model?.startsWith("gpt"),
+    reserveCredits: async (_accountId, model, credits) => {
+      reservedModel = model;
+      return {
+        reservationId: "00000000-0000-0000-0000-000000000011",
+        creditsUsed: credits,
+        allowed: true,
+      };
+    },
+    generateStream: (_message, _history, options) => {
+      executedModel = options?.model;
+      return streamFrom(["fallback"]);
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "equilibrado",
+  }, token);
+  await response!.text();
+
+  assertEquals(response?.status, 200);
+  assertEquals(reservedModel, "gemini-flash-3.5");
+  assertEquals(executedModel, "gemini-flash-3.5");
 });
 
 Deno.test("M4.5 chat: histórico além da janela de contexto é compactado antes de ir pro provedor", async () => {

@@ -1,13 +1,18 @@
 import { track } from "./telemetry.ts";
 import logger from "./logger.ts";
 import { billingService } from "./billingService.ts";
-import { generateTextStream } from "./aiService.ts";
+import {
+  generateTextStream,
+  isProviderAvailable,
+  resolveAvailableModel,
+} from "./aiService.ts";
 import type { PromptBuilder } from "../prompts.ts";
 import { getWingAuth } from "../middlewares/authMiddleware.ts";
 import {
   estimateActionCharge,
   estimateTokens,
   resolveActionModel,
+  resolveBillableModel,
 } from "./creditUsage.ts";
 import {
   isQualityLevelAllowedForPlan,
@@ -38,13 +43,13 @@ export const resolveActionExecutionModel = (
   actionName === "rewrite"
     ? resolveQualityLevelModel(options?.qualityLevel)
     : resolveActionModel(
-        actionName,
-        undefined,
-        defaults.generalModel ?? Deno.env.get("GEMINI_MODEL"),
-        defaults.translationModel ??
-          Deno.env.get("WING_TRANSLATION_MODEL") ??
-          "gemini-3.1-flash-lite",
-      );
+      actionName,
+      undefined,
+      defaults.generalModel ?? Deno.env.get("GEMINI_MODEL"),
+      defaults.translationModel ??
+        Deno.env.get("WING_TRANSLATION_MODEL") ??
+        "gemini-3.1-flash-lite",
+    );
 
 // Helper para coletar o stream da IA
 async function collectStream(stream: AsyncGenerator<string>): Promise<string> {
@@ -84,7 +89,8 @@ export const handleStreamRequest = async (
     if (totalChars > MAX_ACTION_INPUT_CHARS) {
       ctx.response.status = 400;
       ctx.response.body = {
-        error: `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
+        error:
+          `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
       };
       return;
     }
@@ -124,7 +130,38 @@ export const handleStreamRequest = async (
     // essa segunda condição, um POST direto em /fix ou /summarize com
     // options.model="claude-opus-4.8" (ou qualquer outro) executava e
     // cobrava naquele modelo, ignorando por completo o catálogo protegido.
-    const billableModel = resolveActionExecutionModel(actionName, options);
+    const resolvedModel = resolveActionExecutionModel(actionName, options);
+    const billableModel = resolveAvailableModel(
+      resolvedModel,
+      resolveBillableModel(Deno.env.get("GEMINI_MODEL")),
+      Deno.env.get("NODE_ENV") === "production",
+    );
+
+    if (billableModel !== resolvedModel) {
+      logger.warn(
+        `[${actionName}] Modelo '${resolvedModel}' sem API key em desenvolvimento; usando '${billableModel}' como fallback.`,
+      );
+    }
+
+    if (!isProviderAvailable(billableModel)) {
+      const provider = billableModel.startsWith("gpt")
+        ? "openai"
+        : billableModel.startsWith("claude")
+        ? "anthropic"
+        : "gemini";
+      logger.error(
+        `[${actionName}] Provedor '${provider}' indisponível para o modelo '${billableModel}'. Verifique a API key correspondente.`,
+      );
+      ctx.response.status = 503;
+      ctx.response.body = {
+        error: "O modelo selecionado está temporariamente indisponível.",
+        code: "model_provider_unavailable",
+        provider,
+        model: billableModel,
+      };
+      return;
+    }
+
     const reservedCharge = estimateActionCharge(
       structuredPrompt,
       billableModel,
@@ -175,10 +212,9 @@ export const handleStreamRequest = async (
       console.log("[HANDLER] 7. Entrando no bloco try para chamada de IA");
       // Pass entitlement/plan to generateTextStream if needed for model selection
       const aiStream = generateTextStream(structuredPrompt, {
-        entitlement:
-          entitlement.plan === "pro" || entitlement.plan === "team"
-            ? "Paid"
-            : "Free",
+        entitlement: entitlement.plan === "pro" || entitlement.plan === "team"
+          ? "Paid"
+          : "Free",
         model: billableModel,
         maxOutputTokens,
       });
@@ -299,7 +335,7 @@ export const handleStreamRequest = async (
           logger.error(
             { err: settlementError },
             "Falha ao liberar reserva de tokens.",
-          ),
+          )
         );
       logger.error(
         { err: innerError },

@@ -2,6 +2,7 @@ import { type Context, Router } from "../deps.ts";
 import {
   generateChatStream,
   isProviderAvailable,
+  resolveAvailableModel,
 } from "../services/aiService.ts";
 import { billingService } from "../services/billingService.ts";
 import logger from "../services/logger.ts";
@@ -76,6 +77,7 @@ export interface ChatRouteDependencies {
   getCachedContent: typeof geminiContextCache.getOrCreate;
   appSessions: Pick<AppSessionService, "validate">;
   isProviderAvailable: typeof isProviderAvailable;
+  isProduction: boolean;
 }
 
 const positiveInteger = (name: string, fallback: number): number => {
@@ -108,6 +110,7 @@ const defaultDependencies: ChatRouteDependencies = {
   getCachedContent: geminiContextCache.getOrCreate,
   appSessions: appSessionService,
   isProviderAvailable,
+  isProduction: Deno.env.get("NODE_ENV") === "production",
 };
 
 const readJson = async (
@@ -201,7 +204,21 @@ export const createChatRouter = (
       estimateTokens,
       isSelectableQualityLevel,
       isQualityLevelAllowedForPlan,
-      resolveQualityLevelModel,
+      resolveQualityLevelModel: (level) => {
+        const resolvedModel = resolveQualityLevelModel(level);
+        const model = resolveAvailableModel(
+          resolvedModel,
+          config.defaultBillableModel,
+          dependencies.isProduction,
+          dependencies.isProviderAvailable,
+        );
+        if (model !== resolvedModel) {
+          logger.warn(
+            `[chat] Modelo '${resolvedModel}' sem API key em desenvolvimento; usando '${model}' como fallback.`,
+          );
+        }
+        return model;
+      },
       isModelAvailable: dependencies.isProviderAvailable,
     },
     limits,

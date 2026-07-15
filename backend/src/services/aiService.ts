@@ -28,14 +28,33 @@ const getProviderForModel = (model?: string): AIProvider => {
 // isto o único jeito de descobrir que falta chave é deixar a chamada
 // quebrar. Gemini é obrigatório na inicialização do servidor (o provider
 // lança na hora de construir se faltar), então sempre "disponível" aqui.
-export const isProviderAvailable = (model?: string): boolean => {
+interface EnvironmentReader {
+  get(name: string): string | undefined;
+}
+
+export const isProviderAvailable = (
+  model?: string,
+  environment: EnvironmentReader = Deno.env,
+): boolean => {
   if (!model) return true;
-  if (model.startsWith("gpt")) return Boolean(Deno.env.get("OPENAI_API_KEY"));
+  if (model.startsWith("gpt")) {
+    return Boolean(environment.get("OPENAI_API_KEY"));
+  }
   if (model.startsWith("claude")) {
-    return Boolean(Deno.env.get("ANTHROPIC_API_KEY"));
+    return Boolean(environment.get("ANTHROPIC_API_KEY"));
   }
   return true;
 };
+
+export const resolveAvailableModel = (
+  model: string,
+  fallbackModel: string,
+  isProduction: boolean,
+  isAvailable: (candidate: string) => boolean = isProviderAvailable,
+): string =>
+  !isProduction && !isAvailable(model) && isAvailable(fallbackModel)
+    ? fallbackModel
+    : model;
 
 export const generateTextStream = (
   prompt: string,
