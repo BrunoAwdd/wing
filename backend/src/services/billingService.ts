@@ -1,7 +1,22 @@
 import { supabase } from "./supabaseClient.ts";
 import { track } from "./telemetry.ts";
-import { stripeService, type StripeSubscription } from "./stripeService.ts";
+import { type StripeSubscription } from "./stripeService.ts";
 import type { MicrosoftIdentity } from "./microsoftIdentityService.ts";
+
+import { WalletUseCases } from "../contexts/wallet-billing/application/use-cases/WalletUseCases.ts";
+import { BillingUseCases } from "../contexts/wallet-billing/application/use-cases/BillingUseCases.ts";
+import { SupabaseWalletRepository } from "../contexts/wallet-billing/infrastructure/adapters/SupabaseWalletRepository.ts";
+import { SupabaseSubscriptionRepository } from "../contexts/wallet-billing/infrastructure/adapters/SupabaseSubscriptionRepository.ts";
+import { SupabaseWebhookIdempotencyStore } from "../contexts/wallet-billing/infrastructure/adapters/SupabaseWebhookIdempotencyStore.ts";
+import { StripePaymentProvider } from "../contexts/wallet-billing/infrastructure/adapters/StripePaymentProvider.ts";
+
+const walletUseCases = new WalletUseCases(new SupabaseWalletRepository());
+const billingUseCases = new BillingUseCases(
+  new SupabaseWebhookIdempotencyStore(),
+  new SupabaseSubscriptionRepository(),
+  { track: (eventName, properties, accountId) => track(eventName as any, properties as any, accountId) },
+  new StripePaymentProvider(),
+);
 
 export interface Account {
   id: string;
@@ -131,25 +146,7 @@ export const billingService = {
 
   // --- Subscriptions ---
   upsertSubscription: async (subscription: Partial<Subscription>) => {
-    // Check if exists by external_subscription_id
-    const { data: existing } = await supabase
-      .from("subscriptions")
-      .select("*")
-      .eq("external_subscription_id", subscription.external_subscription_id)
-      .single();
-
-    if (existing) {
-      const { error } = await supabase
-        .from("subscriptions")
-        .update(subscription)
-        .eq("id", existing.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from("subscriptions")
-        .insert(subscription);
-      if (error) throw error;
-    }
+    await billingUseCases.upsertSubscription(subscription);
   },
 
   getSubscription: async (accountId: string): Promise<Subscription | null> => {
@@ -167,24 +164,7 @@ export const billingService = {
   getEntitlement: async (
     accountId: string,
   ): Promise<{ plan: Subscription["plan"] | "free"; status: string }> => {
-    const { data, error } = await supabase
-      .from("subscriptions")
-      .select("plan, status, current_period_end")
-      .eq("account_id", accountId)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (!data) return { plan: "free", status: "inactive" };
-
-    const paidStatus = data.status === "active" || data.status === "trialing";
-    const periodIsCurrent = typeof data.current_period_end === "string" &&
-      new Date(data.current_period_end).getTime() > Date.now();
-
-    if (!paidStatus || !periodIsCurrent) {
-      return { plan: "free", status: data.status };
-    }
-
-    return { plan: data.plan, status: data.status };
+    return billingUseCases.getEntitlement(accountId);
   },
 
   // --- Usage ---
@@ -196,43 +176,14 @@ export const billingService = {
   ): Promise<
     { reservationId: string; creditsUsed: number; allowed: boolean }
   > => {
-    const now = new Date();
-    const yyyymm = Number(
-      `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`,
-    );
-    const reservationId = crypto.randomUUID();
-    const { data, error } = await supabase.rpc("reserve_usage_credits", {
-      p_reservation_id: reservationId,
-      p_account_id: accountId,
-      p_yyyymm: yyyymm,
-      p_model: model,
-      p_credits: credits,
-      p_limit: limit,
-    });
-    if (error) throw error;
-    const row = (Array.isArray(data) ? data[0] : data) as {
-      credits_used: number;
-      allowed: boolean;
-    };
-    return {
-      reservationId,
-      creditsUsed: Number(row.credits_used),
-      allowed: row.allowed,
-    };
+    return walletUseCases.reserveCredits(accountId, model, credits, limit);
   },
 
   settleCredits: async (
     reservationId: string,
     charge: { credits: number; inputTokens: number; outputTokens: number },
   ): Promise<number> => {
-    const { data, error } = await supabase.rpc("settle_usage_credits", {
-      p_reservation_id: reservationId,
-      p_actual_credits: charge.credits,
-      p_input_tokens: charge.inputTokens,
-      p_output_tokens: charge.outputTokens,
-    });
-    if (error) throw error;
-    return Number(data);
+    return walletUseCases.settleCredits(reservationId, charge.credits, charge.inputTokens, charge.outputTokens);
   },
 
   // Incremento atômico via função SQL (RPC) — evita a condição de corrida de
@@ -246,44 +197,26 @@ export const billingService = {
     tokens: number,
     limit: number | null,
   ): Promise<{ requestsCount: number; allowed: boolean }> => {
-    const now = new Date();
-    const yyyymm = parseInt(
-      `${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}`,
-    );
+    const result = await walletUseCases.incrementUsage(accountId, tokens, limit);
 
-    const { data, error } = await supabase.rpc(
-      "increment_usage_and_check_limit",
-      {
-        p_account_id: accountId,
-        p_yyyymm: yyyymm,
-        p_tokens: tokens,
-        p_limit: limit,
-      },
-    );
-    if (error) throw error;
-
-    const row = (Array.isArray(data) ? data[0] : data) as {
-      requests_count: number;
-      allowed: boolean;
-    };
-
-    if (row.allowed) {
-      // RFC 014 §8: "consumo de cota Free" — só contagens, sem texto do documento.
+    if (result.allowed) {
+      const now = new Date();
+      const yyyymm = parseInt(`${now.getFullYear()}${(now.getMonth() + 1).toString().padStart(2, "0")}`);
       track(
         "usage_incremented",
-        { yyyymm, requests_count: row.requests_count, tokens_used: tokens },
+        { yyyymm, requests_count: result.requestsCount, tokens_used: tokens },
         accountId,
       );
     }
 
-    return { requestsCount: row.requests_count, allowed: row.allowed };
+    return result;
   },
 
   // --- Stripe ---
   getOrCreateStripeCustomer: async (account: Account): Promise<string> => {
     if (account.stripe_customer_id) return account.stripe_customer_id;
 
-    const customerId = await stripeService.createCustomer(account.email);
+    const customerId = await billingUseCases.createCustomer(account.email);
     const { error } = await supabase
       .from("accounts")
       .update({ stripe_customer_id: customerId })
@@ -301,41 +234,22 @@ export const billingService = {
     type: string;
     payload: unknown;
   }): Promise<boolean> => {
-    const { error } = await supabase.from("webhook_events").insert({
-      id: event.id,
-      type: event.type,
-      payload: event.payload,
-    });
-    if (!error) return true;
-    if (error.code === "23505") return false;
-    throw error;
+    return billingUseCases.recordWebhookEventIfNew(event);
   },
 
-  // Compensação: se o processamento do evento falhar depois do registro de
-  // idempotência acima, a linha precisa sumir — senão o retry da Stripe
-  // (mesmo event.id) bate no unique_violation e é descartado como duplicado,
-  // e o evento nunca é reprocessado.
   removeWebhookEvent: async (eventId: string): Promise<void> => {
-    const { error } = await supabase.from("webhook_events").delete().eq(
-      "id",
-      eventId,
-    );
-    if (error) throw error;
+    await billingUseCases.removeWebhookEvent(eventId);
   },
 
   syncSubscriptionFromStripe: async (
     stripeSubscription: StripeSubscription,
     accountId: string,
   ): Promise<void> => {
-    await billingService.upsertSubscription({
-      account_id: accountId,
-      external_subscription_id: stripeSubscription.id,
-      provider: "stripe",
-      plan: "pro",
-      status: stripeSubscription.status as Subscription["status"],
-      current_period_end: new Date(
-        stripeSubscription.current_period_end * 1000,
-      ).toISOString(),
-    });
+    await billingUseCases.syncSubscriptionFromStripe(
+      stripeSubscription.id,
+      accountId,
+      stripeSubscription.status as any,
+      stripeSubscription.current_period_end
+    );
   },
 };

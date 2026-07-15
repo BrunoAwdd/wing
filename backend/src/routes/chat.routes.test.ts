@@ -3,8 +3,9 @@ import {
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Application, Router } from "../deps.ts";
+import type { ChatHistoryEntry } from "../contexts/cache/domain/ChatHistoryCompactor.ts";
 import {
-  type ChatHistoryEntry,
+  type ChatConfig,
   type ChatLimits,
   type ChatRouteDependencies,
   createChatRouter,
@@ -28,9 +29,18 @@ const streamFrom = (chunks: string[]): AsyncGenerator<string, void, unknown> =>
     for (const chunk of chunks) yield chunk;
   })();
 
+const defaultConfig: ChatConfig = {
+  contextWindowEntries: 10,
+  promptCacheTtlSeconds: 3_600,
+  freeMonthlyCreditLimit: 1_000,
+  maxOutputTokens: 2_048,
+  defaultBillableModel: "gemini-flash-3.5",
+};
+
 const createTestApp = (
   overrides: Partial<ChatRouteDependencies> = {},
   limitOverrides: Partial<ChatLimits> = {},
+  configOverrides: Partial<ChatConfig> = {},
 ) => {
   const dependencies: ChatRouteDependencies = {
     generateStream: () => streamFrom(["resposta"]),
@@ -67,7 +77,7 @@ const createTestApp = (
   };
   const app = new Application();
   const root = new Router();
-  const chat = createChatRouter(dependencies, { ...limits, ...limitOverrides });
+  const chat = createChatRouter(dependencies, { ...limits, ...limitOverrides }, { ...defaultConfig, ...configOverrides });
   root.use("/api/v1/chat", chat.routes(), chat.allowedMethods());
   app.use(root.routes());
   app.use(root.allowedMethods());
@@ -523,37 +533,31 @@ Deno.test("M4.5 chat: nível 'profundo' com plano Pro chama e cobra o mesmo mode
 });
 
 Deno.test("M4.5 chat: histórico além da janela de contexto é compactado antes de ir pro provedor", async () => {
-  const originalWindow = Deno.env.get("WING_CHAT_CONTEXT_WINDOW");
-  Deno.env.set("WING_CHAT_CONTEXT_WINDOW", "4"); // mantém só 2 pares brutos
-  try {
-    const histories: ChatHistoryEntry[][] = [];
-    const app = createTestApp(
-      {
-        generateStream: (_message, history) => {
-          histories.push(structuredClone(history as ChatHistoryEntry[]));
-          return streamFrom(["ok"]);
-        },
+  const histories: ChatHistoryEntry[][] = [];
+  const app = createTestApp(
+    {
+      generateStream: (_message, history) => {
+        histories.push(structuredClone(history as ChatHistoryEntry[]));
+        return streamFrom(["ok"]);
       },
-      { maxMessages: 5 },
-    );
-    const token = await withSession();
-    const sessionId = await startSession(app, token);
+    },
+    { maxMessages: 5 },
+    { contextWindowEntries: 4 }, // mantém só 2 pares brutos
+  );
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
 
-    for (let i = 0; i < 4; i += 1) {
-      const response = await request(app, "/message", { sessionId, message: `p${i}` }, token);
-      await response!.text();
-    }
-
-    // Antes de estourar a janela: histórico bruto, sem resumo.
-    assertEquals(histories[0].length, 0);
-    assertEquals(histories[2].length, 4);
-    // A 4ª chamada já tem 6 entradas acumuladas (> janela de 4) — compacta.
-    assertEquals(histories[3][0].parts[0].text.includes("Resumo de"), true);
-    assertEquals(histories[3].length, 6); // 2 de resumo + 4 brutas (janela)
-  } finally {
-    if (originalWindow === undefined) Deno.env.delete("WING_CHAT_CONTEXT_WINDOW");
-    else Deno.env.set("WING_CHAT_CONTEXT_WINDOW", originalWindow);
+  for (let i = 0; i < 4; i += 1) {
+    const response = await request(app, "/message", { sessionId, message: `p${i}` }, token);
+    await response!.text();
   }
+
+  // Antes de estourar a janela: histórico bruto, sem resumo.
+  assertEquals(histories[0].length, 0);
+  assertEquals(histories[2].length, 4);
+  // A 4ª chamada já tem 6 entradas acumuladas (> janela de 4) — compacta.
+  assertEquals(histories[3][0].parts[0].text.includes("Resumo de"), true);
+  assertEquals(histories[3].length, 6); // 2 de resumo + 4 brutas (janela)
 });
 
 Deno.test("M4.5 chat: modelo Gemini usa o cache explícito (GoogleAICacheManager) via getCachedContent", async () => {
