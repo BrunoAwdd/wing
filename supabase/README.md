@@ -6,15 +6,17 @@ tree under `backend/`.
 
 ## Workflow
 
-Create and review migrations from the repository root. Migration filenames use
-unique 14-digit UTC timestamps so the Supabase migration ledger has one stable
-version per file.
+Create and review migrations from the repository root. The current product
+schema is represented by one squashed baseline. New schema changes must be new,
+forward-only migrations with unique 14-digit UTC timestamps; do not edit the
+baseline after it has been adopted by a remote environment.
 
 Before applying this consolidated history to an existing remote environment,
 compare its migration ledger with these files and repair the ledger deliberately.
-Some migrations previously lived under `backend/supabase/migrations` and may
-have been executed manually without a matching ledger entry. Do not run a blind
-`db push` against production until that comparison is complete.
+The former split history was squashed into the baseline and may have been
+executed manually without matching ledger entries. Do not run a blind `db push`
+against production until its existing objects and migration ledger have been
+reconciled with the baseline version.
 
 The application data plane is backend-only: the backend uses `service_role`,
 while browser clients use the anon key only for Supabase Auth. Product tables
