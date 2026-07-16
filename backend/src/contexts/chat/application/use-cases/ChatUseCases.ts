@@ -288,12 +288,23 @@ export class ChatUseCases {
     let promptCacheProvider: string | undefined;
     let entitlementPlan = "free";
 
+    // Telemetria: duração total + breakdown por fase (M5). requestStartedAt
+    // cobre a chamada inteira; cada fase mede só o próprio trecho async —
+    // cache_lookup_ms fica de fora do objeto quando a fase nem roda (só
+    // Gemini tenta cache), em vez de aparecer como 0 e sugerir que rodou.
+    const requestStartedAt = this.deps.now();
+    let entitlementMs = 0;
+    let cacheLookupMs = 0;
+    let creditReserveMs = 0;
+
     try {
+      const entitlementStartedAt = this.deps.now();
       if (await this.deps.isAccountRevoked(accountId)) {
         throw new AccountRevokedError();
       }
 
       const entitlement = await this.deps.getEntitlement(accountId);
+      entitlementMs = this.deps.now() - entitlementStartedAt;
       entitlementPlan = entitlement.plan;
 
       if (
@@ -318,6 +329,7 @@ export class ChatUseCases {
           1,
           Math.floor((appSession.absoluteExpiresAt - this.deps.now()) / 1000),
         );
+        const cacheLookupStartedAt = this.deps.now();
         const cacheEntry = await this.deps.getCachedContent({
           accountId,
           documentText: session.documentText,
@@ -329,6 +341,7 @@ export class ChatUseCases {
           ),
           appSessionId: session.appSessionId,
         }).catch(() => null);
+        cacheLookupMs = this.deps.now() - cacheLookupStartedAt;
         cachedContentName = cacheEntry?.name;
       } else if (billableModel.startsWith("claude")) {
         promptCacheAttempted = true;
@@ -350,12 +363,14 @@ export class ChatUseCases {
       const usageLimit = entitlement.plan === "free"
         ? this.config.freeMonthlyCreditLimit
         : null;
+      const creditReserveStartedAt = this.deps.now();
       const usage = await this.deps.reserveCredits(
         accountId,
         billableModel,
         reservedCharge.credits,
         usageLimit,
       );
+      creditReserveMs = this.deps.now() - creditReserveStartedAt;
       reservationId = usage.reservationId;
 
       if (!usage.allowed) {
@@ -401,6 +416,13 @@ export class ChatUseCases {
         cachedInputTokens: 0,
         cacheWriteTokens: 0,
       };
+      // Só dispara chat_message_completed (com o breakdown de fases) depois
+      // da liquidação de créditos no `finally` — succeeded marca se o
+      // stream terminou bem, já que o finally roda nos dois casos (sucesso
+      // e erro) e chat_message_interrupted já cobre o caminho de erro.
+      let succeeded = false;
+      const streamStartedAt = self.deps.now();
+      let providerStreamMs = 0;
 
       try {
         let next = await stream.next();
@@ -409,6 +431,7 @@ export class ChatUseCases {
           yield next.value;
           next = await stream.next();
         }
+        providerStreamMs = self.deps.now() - streamStartedAt;
         if (next.value) cacheUsage = next.value;
 
         session.history.push({
@@ -416,23 +439,16 @@ export class ChatUseCases {
           parts: [{ text: completeResponse }],
         });
         session.messageCount += 1;
-        self.deps.trackEvent(
-          "chat_message_completed",
-          {
-            entitlement: entitlementPlan,
-            message_chars: trimmedMessage.length,
-            response_chars: completeResponse.length,
-            session_message_count: session.messageCount,
-          },
-          accountId,
-        );
+        succeeded = true;
       } catch (error) {
+        providerStreamMs = self.deps.now() - streamStartedAt;
         session.history = historyBeforeMessage;
         self.deps.trackEvent("chat_message_interrupted", {
           session_message_count: session.messageCount,
         }, accountId);
         throw error;
       } finally {
+        let creditSettleMs = 0;
         if (reservationId) {
           const actualCharge = self.deps.estimateChatCharge(
             trimmedMessage,
@@ -457,8 +473,31 @@ export class ChatUseCases {
             );
           }
 
+          const creditSettleStartedAt = self.deps.now();
           await self.deps.settleCredits(reservationId, actualCharge).catch(
             () => {},
+          );
+          creditSettleMs = self.deps.now() - creditSettleStartedAt;
+        }
+
+        if (succeeded) {
+          self.deps.trackEvent(
+            "chat_message_completed",
+            {
+              entitlement: entitlementPlan,
+              message_chars: trimmedMessage.length,
+              response_chars: completeResponse.length,
+              session_message_count: session.messageCount,
+              duration_ms: self.deps.now() - requestStartedAt,
+              phases: {
+                entitlement_ms: entitlementMs,
+                ...(cacheLookupMs > 0 ? { cache_lookup_ms: cacheLookupMs } : {}),
+                credit_reserve_ms: creditReserveMs,
+                provider_stream_ms: providerStreamMs,
+                credit_settle_ms: creditSettleMs,
+              },
+            },
+            accountId,
           );
         }
         session.inFlight = false;

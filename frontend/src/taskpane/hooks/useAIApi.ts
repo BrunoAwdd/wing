@@ -99,6 +99,12 @@ export const useAIApi = ({
     setIsLoading(true); // Ativa o loading
     setLastCommand(commandToExecute);
     addLog(`Enviando comando: "${commandToExecute}"`, "info");
+    // M5: latência ponta a ponta medida no cliente (clique até fim do
+    // stream) + fases — ttfb_ms isola tempo de rede/fila/backend antes do
+    // primeiro byte, streaming_ms é só a geração em si. Complementa
+    // duration_ms/phases de prompt_completed (que só mede o servidor).
+    const requestStartedAt = performance.now();
+    let firstByteAt: number | null = null;
     try {
       const response = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: "POST",
@@ -132,6 +138,7 @@ export const useAIApi = ({
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (firstByteAt === null) firstByteAt = performance.now();
 
         const chunkText = decoder.decode(value, { stream: true });
         buffer += chunkText;
@@ -162,6 +169,21 @@ export const useAIApi = ({
 
       cache.saveSuggestion(originalText, commandToExecute, streamedParagraphs);
       addLog("Sugestão recebida!", "success");
+
+      const completedAt = performance.now();
+      const ttfbAt = firstByteAt ?? completedAt;
+      track(
+        "action_latency",
+        {
+          command: commandToExecute.toLowerCase(),
+          duration_ms: Math.round(completedAt - requestStartedAt),
+          phases: {
+            ttfb_ms: Math.round(ttfbAt - requestStartedAt),
+            streaming_ms: Math.round(completedAt - ttfbAt),
+          },
+        },
+        sessionToken
+      );
     } catch (error) {
       console.error("Erro ao chamar o backend:", error);
       const errorCode = error instanceof TypeError

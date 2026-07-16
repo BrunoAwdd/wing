@@ -27,9 +27,10 @@
 | M4.5  | Cache do Fale com o documento            | Concluído    | M3, M4.4     | Conversas contínuas com menor custo de contexto       |
 | M4.6  | Sessão por instância do Word             | Concluído    | M1, M3, M4.5 | Documentos abertos isolados sem licença por assento   |
 | M4.7  | Ciclo e cobrança do cache                 | Concluído    | M4.4-M4.6    | Cache sustentável com economia visível ao cliente    |
-| M4.8  | DDD e arquitetura hexagonal               | Pendente     | M4.7         | Núcleo comercial testável e independente de vendors  |
-| M5    | Empacotamento e ambiente de produção     | Pendente     | M1-M4.8      | Add-in instalável fora do ambiente de dev             |
-| M6    | Quality gate e piloto pago               | Pendente     | M1-M5        | Liberação controlada para clientes                    |
+| M4.8  | DDD e arquitetura hexagonal               | Concluído    | M4.7         | Núcleo comercial testável e independente de vendors  |
+| M5    | Empacotamento e ambiente de produção     | Em andamento | M1-M4.8      | Add-in instalável fora do ambiente de dev             |
+| M5.1  | Site comercial e cadastro                | Pendente     | M1, M2, M5   | Visitante conhece o Wing e cria sua conta             |
+| M6    | Quality gate e piloto pago               | Pendente     | M1-M5.1      | Liberação controlada para clientes                    |
 | M7    | Enterprise                               | Futuro       | M6           | Governança, múltiplas contas e controle de alterações |
 
 ## M0 - Retirada do runtime aposentado
@@ -290,25 +291,25 @@ observável do produto.
 
 Entregáveis:
 
-- [ ] mapear os bounded contexts iniciais: Identidade e Entitlements, Carteira
+- [x] mapear os bounded contexts iniciais: Identidade e Entitlements, Carteira
   e Billing, App Sessions, Chat e Cache;
-- [ ] definir entidades, value objects, invariantes e eventos de domínio apenas
+- [x] definir entidades, value objects, invariantes e eventos de domínio apenas
   onde houver regra de negócio real, evitando modelos anêmicos e abstrações sem uso;
-- [ ] extrair casos de uso para a camada de aplicação, com portas de entrada
+- [x] extrair casos de uso para a camada de aplicação, com portas de entrada
   explícitas e DTOs independentes do transporte HTTP;
-- [ ] definir portas de saída para persistência, pagamentos, provedores de IA,
+- [x] definir portas de saída para persistência, pagamentos, provedores de IA,
   cache, telemetria, relógio e geração de identificadores;
-- [ ] transformar Oak, Supabase, Stripe, GPT, Gemini e Claude em adaptadores,
+- [x] transformar Oak, Supabase, Stripe, GPT, Gemini e Claude em adaptadores,
   mantendo configuração e detalhes de SDK fora do domínio;
-- [ ] tornar as rotas finas: autenticar, validar DTO, executar um caso de uso e
+- [x] tornar as rotas finas: autenticar, validar DTO, executar um caso de uso e
   converter seu resultado em resposta HTTP;
-- [ ] migrar um contexto por vez, preservando os testes de contrato existentes
+- [x] migrar um contexto por vez, preservando os testes de contrato existentes
   e evitando uma troca estrutural de todo o backend em um único PR;
-- [ ] adicionar testes unitários das regras de domínio sem rede, banco ou ENV e
+- [x] adicionar testes unitários das regras de domínio sem rede, banco ou ENV e
   testes de contrato para os adaptadores críticos;
-- [ ] documentar dependências permitidas entre camadas e contextos, incluindo
+- [x] documentar dependências permitidas entre camadas e contextos, incluindo
   uma regra automatizada que impeça imports de infraestrutura no domínio;
-- [ ] remover serviços legados somente depois que seus casos de uso e contratos
+- [x] remover serviços legados somente depois que seus casos de uso e contratos
   tiverem sido substituídos e validados.
 
 Ordem sugerida de migração: App Sessions, Carteira e Billing, Cache, Chat e, por
@@ -325,18 +326,52 @@ continuam compatíveis; e a suíte completa permanece verde durante toda a migra
 
 Entregáveis:
 
-- [ ] criar manifesto de produção com URLs, ícones, suporte e SSO definitivos;
-- [ ] remover `localhost` e cliente de HMR do artefato implantado;
+- [x] preparar geração parametrizada do manifesto de produção e falhar o build
+  quando `PROD_APP_DOMAIN` não estiver definido;
+- [ ] definir no manifesto final URLs, ícones, suporte e SSO definitivos;
+- [x] configurar o build de produção sem `devServer`, HMR e referências de
+  desenvolvimento no manifesto gerado;
+- [ ] inspecionar o artefato implantado e comprovar ausência de `localhost` e HMR;
 - [ ] substituir os domínios temporários pelo domínio oficial no manifesto,
   em `BACKEND_URL` e em `CORS_ALLOWED_ORIGINS`;
-- [ ] validar em produção que `localhost`, o túnel
+- [x] implementar e testar em modo de produção a rejeição de `localhost`, túnel,
+  wildcard e origem `null` no CORS;
+- [ ] validar contra o endpoint implantado que `localhost`, o túnel
   `supercontext-ui.atdigitalbank.com.br`, wildcard e origem `null` não recebem
   autorização CORS;
-- [ ] separar e documentar configurações de dev, staging e produção;
+- [x] separar e documentar configurações de dev, staging e produção;
 - [ ] validar certificados, secrets, health check e observabilidade;
 - [ ] executar smoke test no Word Windows, Mac e Web.
 
 Gate de saída: o pacote instalado em uma máquina limpa abre o Wing, autentica e conclui uma ação sem depender de infraestrutura local.
+
+## M5.1 - Site comercial e cadastro
+
+Objetivo: publicar uma presença comercial mínima para explicar a proposta do
+Wing e converter um visitante em conta cadastrada, reaproveitando a identidade
+e o Magic Link existentes.
+
+Entregáveis:
+
+- [ ] criar uma landing page curta, responsiva e acessível no domínio oficial;
+- [ ] apresentar problema, proposta de valor, principais casos de uso e CTA de cadastro;
+- [ ] criar o fluxo `Cadastrar` com e-mail, código de acesso e confirmação da conta;
+- [ ] reutilizar os endpoints de Magic Link e a criação de conta existentes,
+  sem introduzir uma segunda identidade;
+- [ ] aplicar rate limit, mensagens anti-enumeração e tratamento claro de erros;
+- [ ] disponibilizar Termos de Uso, Política de Privacidade, contato e suporte;
+- [ ] definir o destino após o cadastro: instalação do add-in, acesso ao plano
+  Free ou início do checkout;
+- [ ] registrar telemetria mínima do funil: visita, início do cadastro,
+  cadastro concluído e checkout iniciado;
+- [ ] validar o fluxo em desktop e mobile, incluindo expiração e reenvio do código.
+
+Fora deste milestone: blog, CMS, área editorial, painel administrativo e site
+institucional extenso.
+
+Gate de saída: uma pessoa sem conta acessa o domínio oficial, entende o produto,
+conclui o cadastro por e-mail e chega ao próximo passo comercial sem intervenção
+manual.
 
 ## M6 - Quality gate e piloto pago
 

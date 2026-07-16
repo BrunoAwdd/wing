@@ -37,3 +37,16 @@ Deno.test("CORS: rejeita wildcard, null, HTTP e URLs com caminho", () => {
     assertThrows(() => resolveCorsOrigins(origin, true));
   }
 });
+
+Deno.test("CORS: produção rejeita localhost e o túnel de dev mesmo se vierem na allowlist explícita", () => {
+  for (
+    const origin of [
+      "https://localhost:5173",
+      "https://supercontext-ui.atdigitalbank.com.br",
+    ]
+  ) {
+    assertThrows(
+      () => resolveCorsOrigins(`https://app.wing.example,${origin}`, true),
+    );
+  }
+});

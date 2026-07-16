@@ -2,6 +2,7 @@ import logger from "./logger.ts";
 import { supabase } from "./supabaseClient.ts";
 import {
   type TelemetryEventName,
+  type TelemetryPropertyValue,
   type TelemetrySource,
   validateTelemetryEvent,
 } from "./telemetryCatalog.ts";
@@ -17,7 +18,7 @@ import {
 
 const persist = (
   eventName: TelemetryEventName,
-  properties: Record<string, string | number>,
+  properties: Record<string, TelemetryPropertyValue>,
   accountId?: string | null,
 ): void => {
   logger.info(

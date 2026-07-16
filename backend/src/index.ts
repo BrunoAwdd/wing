@@ -93,6 +93,23 @@ rootRouter.get("/", (ctx: Context) => {
   ctx.response.body = "Backend do Wing rodando com Deno e Oak!";
 });
 
+// M5: health check pra load balancer / orquestrador de produção. Não checa
+// dependências externas (Supabase, Stripe, provedores de IA) de propósito —
+// isso seria um readiness check mais caro e com falsos negativos por
+// instabilidade de terceiros; aqui só confirma que o processo está de pé e
+// respondendo. As variáveis de ambiente obrigatórias já são validadas no
+// boot (corsConfig, wingSessionService etc. lançam e derrubam o processo se
+// faltar algo), então "processo rodando" já implica config mínima válida.
+const serverStartedAt = Date.now();
+rootRouter.get("/health", (ctx: Context) => {
+  ctx.response.status = 200;
+  ctx.response.body = {
+    status: "ok",
+    uptimeSeconds: Math.floor((Date.now() - serverStartedAt) / 1000),
+    timestamp: new Date().toISOString(),
+  };
+});
+
 // Lógica de criação das rotas da API movida para cá
 const promptBuilderMapping: { [key: string]: PromptBuilder } = {
   fix: buildFixPrompt,

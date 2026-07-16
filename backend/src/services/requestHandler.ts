@@ -95,7 +95,11 @@ export const handleStreamRequest = async (
       return;
     }
 
+    // Telemetria: duração total + breakdown por fase (M5).
+    const requestStartedAt = Date.now();
+    const entitlementStartedAt = Date.now();
     const entitlement = await billingService.getEntitlement(auth.accountId);
+    const entitlementMs = Date.now() - entitlementStartedAt;
 
     // Autorização por nível (QUICK_MODEL_ROUTING_PLAN, gate de saída): ter
     // créditos suficientes não basta pra usar "profundo" — exige plano
@@ -177,12 +181,14 @@ export const handleStreamRequest = async (
       Deno.env.get("WING_FREE_MONTHLY_CREDITS") || "1000",
     );
     const usageLimit = entitlement.plan === "free" ? freeMonthlyLimit : null;
+    const creditReserveStartedAt = Date.now();
     const reservation = await billingService.reserveCredits(
       auth.accountId,
       billableModel,
       reservedCharge.credits,
       usageLimit,
     );
+    const creditReserveMs = Date.now() - creditReserveStartedAt;
 
     if (!reservation.allowed) {
       console.log("[HANDLER] Cota Free excedida.");
@@ -231,6 +237,11 @@ export const handleStreamRequest = async (
           let buffer = "";
           let outputText = "";
           let outputItems = 0;
+          // prompt_completed só dispara (com duration_ms/phases completos)
+          // depois da liquidação de créditos no finally — succeeded marca
+          // se o stream terminou bem, já que prompt_failed cobre o erro.
+          let succeeded = false;
+          const providerStreamStartedAt = Date.now();
 
           try {
             for await (const chunk of aiStream) {
@@ -285,11 +296,7 @@ export const handleStreamRequest = async (
             console.log(
               "[HANDLER] 8. Stream da IA finalizado e enviado para o cliente.",
             );
-            track(
-              "prompt_completed",
-              { command: actionName, output_items: outputItems },
-              auth.accountId,
-            );
+            succeeded = true;
           } catch (streamError) {
             logger.error(
               { err: streamError },
@@ -302,20 +309,41 @@ export const handleStreamRequest = async (
             );
             controller.error(streamError);
           } finally {
+            const providerStreamMs = Date.now() - providerStreamStartedAt;
+            let creditSettleMs = 0;
             try {
               const actualCharge = estimateActionCharge(
                 structuredPrompt,
                 billableModel,
                 estimateTokens(outputText),
               );
+              const creditSettleStartedAt = Date.now();
               await billingService.settleCredits(
                 reservation.reservationId,
                 actualCharge,
               );
+              creditSettleMs = Date.now() - creditSettleStartedAt;
             } catch (settlementError) {
               logger.error(
                 { err: settlementError },
                 "Falha ao liquidar consumo de tokens.",
+              );
+            }
+            if (succeeded) {
+              track(
+                "prompt_completed",
+                {
+                  command: actionName,
+                  output_items: outputItems,
+                  duration_ms: Date.now() - requestStartedAt,
+                  phases: {
+                    entitlement_ms: entitlementMs,
+                    credit_reserve_ms: creditReserveMs,
+                    provider_stream_ms: providerStreamMs,
+                    credit_settle_ms: creditSettleMs,
+                  },
+                },
+                auth.accountId,
               );
             }
             controller.close();

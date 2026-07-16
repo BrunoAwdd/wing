@@ -10,7 +10,18 @@ type IntegerRule = {
   max: number;
 };
 
-type PropertyRule = StringRule | IntegerRule;
+// Breakdown de duração por fase de uma operação (ex.: tempo de checagem de
+// entitlement, tempo gasto no provedor de IA, tempo de liquidação de
+// créditos) — nem toda fase acontece em toda chamada (ex.: cache_lookup_ms
+// só existe pra Gemini), então `keys` é o conjunto PERMITIDO, não
+// obrigatório: um subconjunto é válido, uma chave fora da lista não.
+type PhasesRule = {
+  type: "phases";
+  keys: readonly string[];
+  maxMs: number;
+};
+
+type PropertyRule = StringRule | IntegerRule | PhasesRule;
 
 interface EventDefinition {
   source: "client" | "server";
@@ -37,6 +48,12 @@ const cacheProviderRule: StringRule = {
   type: "string",
   values: ["gemini", "openai", "anthropic"],
 };
+const durationMsRule: IntegerRule = { type: "integer", min: 0, max: 300_000 };
+const phasesRule = (keys: readonly string[]): PhasesRule => ({
+  type: "phases",
+  keys,
+  maxMs: 300_000,
+});
 
 export const TELEMETRY_CATALOG = {
   panel_opened: { source: "client", properties: {} },
@@ -82,6 +99,21 @@ export const TELEMETRY_CATALOG = {
     },
   },
   memory_sync_completed: { source: "client", properties: {} },
+  // Latência ponta a ponta medida no cliente (clique até fim do stream) —
+  // complementa duration_ms/phases de prompt_completed/chat_message_completed
+  // (que só medem o processamento do servidor). A diferença entre os dois
+  // isola tempo de rede/fila do tempo de provedor de IA/backend.
+  action_latency: {
+    source: "client",
+    properties: {
+      command: {
+        type: "string",
+        values: ["fix", "translate", "summarize", "rewrite", "chat"],
+      },
+      duration_ms: durationMsRule,
+      phases: phasesRule(["ttfb_ms", "streaming_ms"]),
+    },
+  },
   usage_incremented: {
     source: "server",
     properties: {
@@ -100,7 +132,17 @@ export const TELEMETRY_CATALOG = {
   },
   prompt_completed: {
     source: "server",
-    properties: { command: commandRule, output_items: countRule },
+    properties: {
+      command: commandRule,
+      output_items: countRule,
+      duration_ms: durationMsRule,
+      phases: phasesRule([
+        "entitlement_ms",
+        "credit_reserve_ms",
+        "provider_stream_ms",
+        "credit_settle_ms",
+      ]),
+    },
   },
   prompt_failed: {
     source: "server",
@@ -146,6 +188,14 @@ export const TELEMETRY_CATALOG = {
       message_chars: countRule,
       response_chars: countRule,
       session_message_count: countRule,
+      duration_ms: durationMsRule,
+      phases: phasesRule([
+        "entitlement_ms",
+        "cache_lookup_ms",
+        "credit_reserve_ms",
+        "provider_stream_ms",
+        "credit_settle_ms",
+      ]),
     },
   },
   chat_message_interrupted: {
@@ -177,8 +227,13 @@ export type TelemetryEventName = keyof typeof TELEMETRY_CATALOG;
 export type TelemetrySource = "client" | "server";
 export const MAX_TELEMETRY_PAYLOAD_BYTES = 2_048;
 
+export type TelemetryPropertyValue =
+  | string
+  | number
+  | Record<string, number>;
+
 export type TelemetryValidationResult =
-  | { ok: true; properties: Record<string, string | number> }
+  | { ok: true; properties: Record<string, TelemetryPropertyValue> }
   | { ok: false; code: string };
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
@@ -223,6 +278,20 @@ export const validateTelemetryEvent = (
       ) {
         return { ok: false, code: "telemetry_property_invalid" };
       }
+    } else if (rule.type === "phases") {
+      if (!isPlainObject(value)) {
+        return { ok: false, code: "telemetry_property_invalid" };
+      }
+      const phaseKeys = Object.keys(value);
+      const validPhases = phaseKeys.every((phaseKey) => {
+        if (!rule.keys.includes(phaseKey)) return false;
+        const phaseValue = value[phaseKey];
+        return Number.isInteger(phaseValue) && (phaseValue as number) >= 0 &&
+          (phaseValue as number) <= rule.maxMs;
+      });
+      if (!validPhases) {
+        return { ok: false, code: "telemetry_property_invalid" };
+      }
     } else if (
       typeof value !== "string" ||
       (rule.maxLength !== undefined && value.length > rule.maxLength) ||
@@ -232,7 +301,7 @@ export const validateTelemetryEvent = (
     }
   }
 
-  const normalized = candidate as Record<string, string | number>;
+  const normalized = candidate as Record<string, TelemetryPropertyValue>;
   const payloadBytes = new TextEncoder().encode(
     JSON.stringify({ eventName, properties: normalized }),
   )

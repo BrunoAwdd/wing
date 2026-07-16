@@ -180,3 +180,53 @@ Deno.test("ChatUseCases.sendMessage: usa o absoluteExpiresAt da própria valida�
   // min(promptCacheTtlSeconds=3600, remaining=10) => 10
   assertEquals(receivedTtlSeconds, 10);
 });
+
+Deno.test("ChatUseCases.sendMessage: chat_message_completed carrega duration_ms e o breakdown de fases (M5)", async () => {
+  // Relógio controlado que avança um passo fixo a cada chamada de now() —
+  // sem isso, todo delta de fase (now() - started) dá 0 e o teste não prova
+  // nada sobre a instrumentação em si.
+  let clock = 0;
+  const now = () => {
+    clock += 10;
+    return clock;
+  };
+
+  const trackedEvents: Array<{ name: string; properties: Record<string, unknown> }> = [];
+
+  const useCases = buildUseCases({
+    now,
+    trackEvent: (eventName, properties) => {
+      trackedEvents.push({ name: eventName, properties: properties ?? {} });
+    },
+    generateStream: () => streamFrom(["resposta", " completa"]),
+  });
+
+  await useCases.startSession("acc-1", "app-1", "doc", []);
+  const stream = await useCases.sendMessage("acc-1", "session-1", "oi", undefined);
+  for await (const _chunk of stream) {
+    // drena o stream pra completar a liquidação de créditos
+  }
+
+  const completed = trackedEvents.find((event) => event.name === "chat_message_completed");
+  if (!completed) throw new Error("chat_message_completed não foi disparado");
+
+  const duration = completed.properties.duration_ms as number;
+  const phases = completed.properties.phases as Record<string, number>;
+
+  assertEquals(typeof duration, "number");
+  assertEquals(duration > 0, true);
+  // gemini-flash-3.5 (modelo padrão do teste) tenta cache — cache_lookup_ms
+  // deve aparecer; nenhuma fase deve ficar de fora ou com valor negativo.
+  for (
+    const phase of [
+      "entitlement_ms",
+      "cache_lookup_ms",
+      "credit_reserve_ms",
+      "provider_stream_ms",
+      "credit_settle_ms",
+    ]
+  ) {
+    assertEquals(typeof phases[phase], "number");
+    assertEquals(phases[phase] > 0, true);
+  }
+});

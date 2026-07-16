@@ -95,7 +95,8 @@ create table wing.telemetry_events (
     'chat_session_started',
     'chat_message_completed',
     'chat_message_interrupted',
-    'chat_context_cache_used'
+    'chat_context_cache_used',
+    'action_latency'
   )),
   properties jsonb not null default '{}'::jsonb
     check (jsonb_typeof(properties) = 'object')

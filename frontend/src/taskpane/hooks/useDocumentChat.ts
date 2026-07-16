@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clearConversation as clearCachedConversation, loadConversation, saveConversation } from "../services/chatCache";
+import { track } from "../services/telemetry";
 
 /* global Word, Office, process */
 
@@ -232,6 +233,13 @@ export const useDocumentChat = ({
 
   const sendMessage = useCallback(
     async (message: string) => {
+      // M5: latência ponta a ponta medida no cliente, do clique até o fim
+      // do stream — inclui qualquer renovação transparente de app session
+      // no meio do caminho (o usuário estava esperando o tempo todo, então
+      // isso faz parte de ttfb_ms de verdade, não é um "extra" escondido).
+      const requestStartedAt = performance.now();
+      let firstByteAt: number | null = null;
+
       let activeSessionId: string | null;
       try {
         activeSessionId = await ensureSession();
@@ -310,6 +318,7 @@ export const useDocumentChat = ({
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          if (firstByteAt === null) firstByteAt = performance.now();
 
           const chunk = decoder.decode(value, { stream: true });
           setMessages((prev) => {
@@ -318,6 +327,21 @@ export const useDocumentChat = ({
             return [...prev.slice(0, -1), lastMessage];
           });
         }
+
+        const completedAt = performance.now();
+        const ttfbAt = firstByteAt ?? completedAt;
+        track(
+          "action_latency",
+          {
+            command: "chat",
+            duration_ms: Math.round(completedAt - requestStartedAt),
+            phases: {
+              ttfb_ms: Math.round(ttfbAt - requestStartedAt),
+              streaming_ms: Math.round(completedAt - ttfbAt),
+            },
+          },
+          sessionToken
+        );
       } catch (e: any) {
         // O backend também restaura o snapshot anterior em falhas de stream.
         // Remove a pergunta e a resposta otimistas para manter as duas visões

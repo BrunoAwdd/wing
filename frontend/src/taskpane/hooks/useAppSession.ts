@@ -71,19 +71,32 @@ export const useAppSession = ({ sessionToken, isOnline }: UseAppSessionProps) =>
         },
         body: JSON.stringify({ documentId }),
       })
-        .then((response) => (response.ok ? response.json() : null))
+        .then(async (response) => {
+          if (response.ok) return response.json();
+          // Resposta HTTP recebida mas rejeitada (401 de token ainda não
+          // propagado, 500 transitório etc.) — isto NÃO cai no .catch()
+          // abaixo (a promise resolve normalmente), então sem este ramo o
+          // registro desistia pra sempre em silêncio: nenhum retry, nenhum
+          // log, e o chat ficava bloqueado ("ação bloqueada") indefinidamente
+          // mesmo esperando, já que só falha de rede tinha retry.
+          console.warn(
+            `[useAppSession] Falha ao registrar app session (HTTP ${response.status}). Tentando de novo em breve.`
+          );
+          throw new Error(`app_session_register_failed_${response.status}`);
+        })
         .then((data) => {
           if (cancelled || !data) return;
           setAppSessionId(data.appSessionId);
           appSessionIdRef.current = data.appSessionId;
         })
         .catch(() => {
-          // Falha de rede/servidor no registro inicial — sem retry aqui, o
-          // chat ficava bloqueado ("ação bloqueada") até o usuário trocar
-          // de conta ou conectividade, já que o heartbeat (a única outra
-          // coisa que tentaria de novo) só reage a heartbeat FALHO de uma
-          // sessão que já existe — nunca ajuda quando o registro em si
-          // nunca chegou a acontecer. Tenta de novo em breve.
+          // Falha de rede/servidor (ou resposta não-ok tratada acima) no
+          // registro inicial — sem retry aqui, o chat ficava bloqueado
+          // ("ação bloqueada") até o usuário trocar de conta ou
+          // conectividade, já que o heartbeat (a única outra coisa que
+          // tentaria de novo) só reage a heartbeat FALHO de uma sessão que
+          // já existe — nunca ajuda quando o registro em si nunca chegou a
+          // acontecer. Tenta de novo em breve.
           if (!cancelled) retryTimer = window.setTimeout(register, 5_000);
         });
     };
