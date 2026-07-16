@@ -7,6 +7,7 @@ import { resolveCorsOrigins } from "./corsConfig.ts";
 Deno.test("CORS: desenvolvimento usa apenas os hosts atuais do add-in", () => {
   assertEquals(resolveCorsOrigins(undefined, false), [
     "https://localhost:5173",
+    "https://localhost:5174",
     "https://supercontext-ui.atdigitalbank.com.br",
   ]);
 });
@@ -42,6 +43,7 @@ Deno.test("CORS: produção rejeita localhost e o túnel de dev mesmo se vierem 
   for (
     const origin of [
       "https://localhost:5173",
+      "https://localhost:5174",
       "https://supercontext-ui.atdigitalbank.com.br",
     ]
   ) {

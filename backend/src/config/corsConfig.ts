@@ -1,5 +1,6 @@
 const DEVELOPMENT_ORIGINS = [
   "https://localhost:5173",
+  "https://localhost:5174",
   "https://supercontext-ui.atdigitalbank.com.br",
 ];
 

@@ -1,0 +1,110 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  background: #f5f5f7;
+  color: #1a1a1a;
+}
+
+.page {
+  width: 100%;
+  max-width: 480px;
+  padding: 2rem 1.25rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.hero {
+  text-align: center;
+}
+
+.hero h1 {
+  font-size: 2.5rem;
+  margin: 0 0 0.5rem;
+}
+
+.hero p {
+  margin: 0;
+  color: #555;
+}
+
+.signup-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.signup-card h2 {
+  margin: 0;
+}
+
+.signup-card label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.signup-card input {
+  padding: 0.625rem 0.75rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.signup-card button {
+  padding: 0.625rem 0.75rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  background: #2b5fff;
+  color: #fff;
+}
+
+.signup-card button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.signup-card button.signup-secondary {
+  background: transparent;
+  color: #2b5fff;
+}
+
+.signup-error {
+  color: #c0362c;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #17181c;
+    color: #f0f0f0;
+  }
+
+  .signup-card {
+    background: #23242a;
+    box-shadow: none;
+  }
+
+  .signup-card input {
+    background: #1a1b20;
+    border-color: #3a3b42;
+    color: #f0f0f0;
+  }
+
+  .hero p {
+    color: #b5b5bd;
+  }
+}

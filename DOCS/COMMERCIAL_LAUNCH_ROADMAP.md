@@ -355,10 +355,10 @@ Entregáveis:
 
 - [ ] criar uma landing page curta, responsiva e acessível no domínio oficial;
 - [ ] apresentar problema, proposta de valor, principais casos de uso e CTA de cadastro;
-- [ ] criar o fluxo `Cadastrar` com e-mail, código de acesso e confirmação da conta;
-- [ ] reutilizar os endpoints de Magic Link e a criação de conta existentes,
+- [x] criar o fluxo `Cadastrar` com e-mail, código de acesso e confirmação da conta;
+- [x] reutilizar os endpoints de Magic Link e a criação de conta existentes,
   sem introduzir uma segunda identidade;
-- [ ] aplicar rate limit, mensagens anti-enumeração e tratamento claro de erros;
+- [x] aplicar rate limit, mensagens anti-enumeração e tratamento claro de erros;
 - [ ] disponibilizar Termos de Uso, Política de Privacidade, contato e suporte;
 - [ ] definir o destino após o cadastro: instalação do add-in, acesso ao plano
   Free ou início do checkout;
