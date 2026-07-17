@@ -1,6 +1,7 @@
 import { Router } from "../deps.ts";
 import { supabase } from "../services/supabaseClient.ts";
 import { type Account, billingService } from "../services/billingService.ts";
+import { type StripeSubscription } from "../services/stripeService.ts";
 import {
   type StripeEvent,
   stripeService,
@@ -191,6 +192,17 @@ export const createBillingRouter = (
 
   router.post("/checkout", requireWingSession, async (ctx) => {
     const auth = getWingAuth(ctx);
+    let plan: unknown;
+    try {
+      ({ plan } = await ctx.request.body.json());
+    } catch {
+      plan = undefined;
+    }
+    if (plan !== "basic" && plan !== "pro") {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "plan deve ser 'basic' ou 'pro'." };
+      return;
+    }
     try {
       const account = await dependencies.getAccount(auth.accountId);
       const customerId = await dependencies.getOrCreateStripeCustomer(account);
@@ -198,13 +210,14 @@ export const createBillingRouter = (
         accountId: auth.accountId,
         email: account.email,
         customerId,
+        plan,
       });
-      dependencies.trackEvent("checkout_started", undefined, auth.accountId);
+      dependencies.trackEvent("checkout_started", { plan }, auth.accountId);
       ctx.response.status = 200;
       ctx.response.body = { url };
     } catch (error) {
       console.error("[Billing] Falha ao criar checkout:", error);
-      dependencies.trackEvent("checkout_failed", undefined, auth.accountId);
+      dependencies.trackEvent("checkout_failed", { plan }, auth.accountId);
       ctx.response.status = 500;
       ctx.response.body = { error: "Não foi possível iniciar o checkout." };
     }
@@ -270,15 +283,11 @@ export const createBillingRouter = (
 
     try {
       if (SUBSCRIPTION_EVENTS.has(event.type)) {
-        const subscription = event.data.object as {
-          id: string;
-          metadata?: { account_id?: string };
-        };
+        const subscription = event.data.object as StripeSubscription;
         const accountId = subscription.metadata?.account_id;
         if (accountId) {
-          // deno-lint-ignore no-explicit-any
           await dependencies.syncSubscriptionFromStripe(
-            subscription as any,
+            subscription,
             accountId,
           );
           // Sinal de conversão real: só "created" marca uma assinatura NOVA.

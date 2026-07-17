@@ -22,7 +22,6 @@ import {
   resolveQualityLevelModel,
 } from "../services/qualityLevels.ts";
 import {
-  compactHistory,
   DEFAULT_CONTEXT_WINDOW_ENTRIES,
 } from "../services/chatContextCache.ts";
 import { geminiContextCache } from "../services/geminiContextCache.ts";
@@ -53,9 +52,6 @@ interface ChatSession {
   timeoutId: number;
 }
 
-const buildDocumentSystemInstruction = (documentText: string): string =>
-  `Você é um assistente especialista neste documento. Analise o conteúdo a seguir e responda perguntas sobre ele. O documento é:\n\n---\n${documentText}\n---`;
-
 export interface ChatLimits {
   maxDocumentChars: number;
   maxMessageChars: number;
@@ -68,6 +64,8 @@ export interface ChatRouteDependencies {
   getEntitlement: typeof billingService.getEntitlement;
   reserveCredits: typeof billingService.reserveCredits;
   settleCredits: typeof billingService.settleCredits;
+  reserveTrialCredits: typeof billingService.reserveTrialCredits;
+  settleTrialCredits: typeof billingService.settleTrialCredits;
   isAccountRevoked: typeof billingService.isAccountRevoked;
   now: () => number;
   randomUUID: () => string;
@@ -97,6 +95,8 @@ const defaultDependencies: ChatRouteDependencies = {
   getEntitlement: billingService.getEntitlement,
   reserveCredits: billingService.reserveCredits,
   settleCredits: billingService.settleCredits,
+  reserveTrialCredits: billingService.reserveTrialCredits,
+  settleTrialCredits: billingService.settleTrialCredits,
   isAccountRevoked: billingService.isAccountRevoked,
   now: Date.now,
   randomUUID: () => crypto.randomUUID(),
@@ -156,7 +156,15 @@ const defaultConfig: ChatConfig = {
     "WING_CHAT_PROMPT_CACHE_TTL_SECONDS",
     3_600,
   ),
-  freeMonthlyCreditLimit: positiveInteger("WING_FREE_MONTHLY_CREDITS", 1_000),
+  trialCreditLimit: positiveInteger("WING_TRIAL_CREDIT_LIMIT", 500),
+  trialDurationSeconds: positiveInteger(
+    "WING_TRIAL_DURATION_SECONDS",
+    30 * 24 * 60 * 60,
+  ),
+  monthlyCreditLimits: {
+    basic: positiveInteger("WING_BASIC_MONTHLY_CREDITS", 3_500),
+    pro: positiveInteger("WING_PRO_MONTHLY_CREDITS", 8_000),
+  },
   maxOutputTokens: positiveInteger("WING_CHAT_MAX_OUTPUT_TOKENS", 2_048),
   defaultBillableModel: resolveBillableModel(Deno.env.get("GEMINI_MODEL")),
 };
@@ -196,6 +204,10 @@ export const createChatRouter = (
       reserveCredits: dependencies.reserveCredits,
       settleCredits: async (reservationId, charge) => {
         await dependencies.settleCredits(reservationId, charge);
+      },
+      reserveTrialCredits: dependencies.reserveTrialCredits,
+      settleTrialCredits: async (reservationId, charge) => {
+        await dependencies.settleTrialCredits(reservationId, charge);
       },
       trackEvent: dependencies.trackEvent,
       getCachedContent: dependencies.getCachedContent,
@@ -368,9 +380,10 @@ export const createChatRouter = (
       } else if (error instanceof QuotaExceededError) {
         ctx.response.status = 402;
         ctx.response.body = {
-          error:
-            "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
-          code: "quota_exceeded",
+          error: error.trialExpired
+            ? "Seu teste grátis expirou. Assine um plano para continuar."
+            : "Créditos esgotados. Assine ou faça upgrade para continuar.",
+          code: error.trialExpired ? "trial_expired" : "quota_exceeded",
         };
       } else if (error instanceof ModelProviderUnavailableError) {
         logger.error(

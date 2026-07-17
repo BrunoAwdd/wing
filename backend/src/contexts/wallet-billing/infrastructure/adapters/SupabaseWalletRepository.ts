@@ -1,5 +1,5 @@
 import { supabase } from "../../../../services/supabaseClient.ts";
-import { Charge, IncrementResult, ReservationResult, WalletRepository } from "../../application/ports/out/WalletRepository.ts";
+import { Charge, IncrementResult, ReservationResult, TrialReservationResult, WalletRepository } from "../../application/ports/out/WalletRepository.ts";
 
 export class SupabaseWalletRepository implements WalletRepository {
   async reserveCredits(accountId: string, model: string, credits: number, limit: number | null): Promise<ReservationResult> {
@@ -30,6 +30,47 @@ export class SupabaseWalletRepository implements WalletRepository {
 
   async settleCredits(reservationId: string, charge: Charge): Promise<number> {
     const { data, error } = await supabase.rpc("settle_usage_credits", {
+      p_reservation_id: reservationId,
+      p_actual_credits: charge.credits,
+      p_input_tokens: charge.inputTokens,
+      p_output_tokens: charge.outputTokens,
+    });
+    if (error) throw error;
+    return Number(data);
+  }
+
+  async reserveTrialCredits(
+    accountId: string,
+    model: string,
+    credits: number,
+    limit: number,
+    trialDurationSeconds: number,
+  ): Promise<TrialReservationResult> {
+    const reservationId = crypto.randomUUID();
+    const { data, error } = await supabase.rpc("reserve_trial_credits", {
+      p_reservation_id: reservationId,
+      p_account_id: accountId,
+      p_model: model,
+      p_credits: credits,
+      p_limit: limit,
+      p_trial_duration_seconds: trialDurationSeconds,
+    });
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      credits_used: number;
+      allowed: boolean;
+      trial_expired: boolean;
+    };
+    return {
+      reservationId,
+      creditsUsed: Number(row.credits_used),
+      allowed: row.allowed,
+      trialExpired: row.trial_expired,
+    };
+  }
+
+  async settleTrialCredits(reservationId: string, charge: Charge): Promise<number> {
+    const { data, error } = await supabase.rpc("settle_trial_credits", {
       p_reservation_id: reservationId,
       p_actual_credits: charge.credits,
       p_input_tokens: charge.inputTokens,

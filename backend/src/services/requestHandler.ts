@@ -1,3 +1,4 @@
+import type { Context } from "../deps.ts";
 import { track } from "./telemetry.ts";
 import logger from "./logger.ts";
 import { billingService } from "./billingService.ts";
@@ -23,6 +24,11 @@ import {
 // Tipos que estavam em api.routes.ts
 type Paragraph = { id: string; text: string };
 
+// Opções enviadas pelo cliente no corpo da requisição — usadas tanto na
+// resolução do modelo (`qualityLevel`) quanto na construção do prompt
+// (`language`/`tone`, ver PromptBuilder em ../prompts.ts).
+type RequestOptions = ActionModelOptions & { language?: string; tone?: string };
+
 // Mesmo nome de env var usado em billing.routes.ts (/estimate) — o limite
 // de tamanho é o mesmo pros dois, senão a estimativa aceita um texto que a
 // execução real rejeitaria (ou vice-versa).
@@ -34,6 +40,42 @@ interface ActionModelOptions {
   model?: string;
   qualityLevel?: unknown;
 }
+
+export interface RequestHandlerDependencies {
+  generateTextStream: typeof generateTextStream;
+  getEntitlement: typeof billingService.getEntitlement;
+  reserveCredits: typeof billingService.reserveCredits;
+  settleCredits: typeof billingService.settleCredits;
+  reserveTrialCredits: typeof billingService.reserveTrialCredits;
+  settleTrialCredits: typeof billingService.settleTrialCredits;
+  trackEvent: typeof track;
+}
+
+const defaultDependencies: RequestHandlerDependencies = {
+  generateTextStream,
+  getEntitlement: billingService.getEntitlement,
+  reserveCredits: billingService.reserveCredits,
+  settleCredits: billingService.settleCredits,
+  reserveTrialCredits: billingService.reserveTrialCredits,
+  settleTrialCredits: billingService.settleTrialCredits,
+  trackEvent: track,
+};
+
+// M6: plano free hoje É o teste grátis (concessão única, não mensal — ver
+// migration 20260717120000_add_trial_credits.sql). Basic/Pro têm teto
+// mensal próprio (antes, qualquer plano pago era ilimitado no código,
+// desalinhado com o que o site promete). Team/enterprise ficam sem teto
+// até M7 definir preço B2B.
+const TRIAL_CREDIT_LIMIT = Number(
+  Deno.env.get("WING_TRIAL_CREDIT_LIMIT") || "500",
+);
+const TRIAL_DURATION_SECONDS = Number(
+  Deno.env.get("WING_TRIAL_DURATION_SECONDS") || `${30 * 24 * 60 * 60}`,
+);
+const MONTHLY_CREDIT_LIMITS: Partial<Record<string, number>> = {
+  basic: Number(Deno.env.get("WING_BASIC_MONTHLY_CREDITS") || "3500"),
+  pro: Number(Deno.env.get("WING_PRO_MONTHLY_CREDITS") || "8000"),
+};
 
 export const resolveActionExecutionModel = (
   actionName: string,
@@ -51,26 +93,18 @@ export const resolveActionExecutionModel = (
         "gemini-3.1-flash-lite",
     );
 
-// Helper para coletar o stream da IA
-async function collectStream(stream: AsyncGenerator<string>): Promise<string> {
-  let content = "";
-  for await (const chunk of stream) {
-    content += chunk;
-  }
-  return content;
-}
-
 // Lógica de Rota movida para um handler de serviço
 export const handleStreamRequest = async (
-  ctx: any, // TODO: Usar um tipo de contexto mais específico do Oak
+  ctx: Context,
   promptBuilder: PromptBuilder,
   actionName: string,
+  dependencies: RequestHandlerDependencies = defaultDependencies,
 ) => {
   console.log("[HANDLER] 1. Entrou em handleStreamRequest");
   try {
     const { text: paragraphs, options } = (await ctx.request.body.json()) as {
       text: Paragraph[];
-      options: any;
+      options: RequestOptions;
     };
     console.log("[HANDLER] 2. Body da requisição parseado");
     const auth = getWingAuth(ctx);
@@ -98,7 +132,7 @@ export const handleStreamRequest = async (
     // Telemetria: duração total + breakdown por fase (M5).
     const requestStartedAt = Date.now();
     const entitlementStartedAt = Date.now();
-    const entitlement = await billingService.getEntitlement(auth.accountId);
+    const entitlement = await dependencies.getEntitlement(auth.accountId);
     const entitlementMs = Date.now() - entitlementStartedAt;
 
     // Autorização por nível (QUICK_MODEL_ROUTING_PLAN, gate de saída): ter
@@ -172,36 +206,56 @@ export const handleStreamRequest = async (
       maxOutputTokens,
     );
 
-    // RFC 015 §11: cota Free é aplicada ANTES de chamar o provedor de IA.
+    // RFC 015 §11: cota é aplicada ANTES de chamar o provedor de IA.
     // Incremento atômico e condicional (função SQL) — evita condição de
     // corrida sob chamadas concorrentes da mesma conta, e não conta a
     // tentativa que estoura o limite (senão requests_count infla a cada
     // retry do usuário, mesmo sem nunca ter chamado a IA).
-    const freeMonthlyLimit = Number(
-      Deno.env.get("WING_FREE_MONTHLY_CREDITS") || "1000",
-    );
-    const usageLimit = entitlement.plan === "free" ? freeMonthlyLimit : null;
+    //
+    // "free" é o teste grátis: concessão única (não mensal), controlada
+    // pelas RPCs reserve_trial_credits/settle_trial_credits contra
+    // accounts.trial_credits_used. Planos pagos usam a cota mensal
+    // tradicional (usage_monthly), com teto próprio por tier.
+    const isTrial = entitlement.plan === "free";
+    const settleReservedCredits = isTrial
+      ? dependencies.settleTrialCredits
+      : dependencies.settleCredits;
     const creditReserveStartedAt = Date.now();
-    const reservation = await billingService.reserveCredits(
-      auth.accountId,
-      billableModel,
-      reservedCharge.credits,
-      usageLimit,
-    );
+    const reservation = isTrial
+      ? await dependencies.reserveTrialCredits(
+        auth.accountId,
+        billableModel,
+        reservedCharge.credits,
+        TRIAL_CREDIT_LIMIT,
+        TRIAL_DURATION_SECONDS,
+      )
+      : await dependencies.reserveCredits(
+        auth.accountId,
+        billableModel,
+        reservedCharge.credits,
+        MONTHLY_CREDIT_LIMITS[entitlement.plan] ?? null,
+      );
     const creditReserveMs = Date.now() - creditReserveStartedAt;
 
     if (!reservation.allowed) {
-      console.log("[HANDLER] Cota Free excedida.");
+      const trialExpired = isTrial && "trialExpired" in reservation &&
+        reservation.trialExpired;
+      console.log(
+        trialExpired ? "[HANDLER] Teste grátis expirado." : "[HANDLER] Cota excedida.",
+      );
       ctx.response.status = 402;
       ctx.response.body = {
-        error:
-          "Limite mensal do plano Free atingido. Assine o Wing Pro para continuar.",
-        code: "quota_exceeded",
+        error: trialExpired
+          ? "Seu teste grátis expirou. Assine um plano para continuar."
+          : isTrial
+          ? "Créditos do teste grátis esgotados. Assine um plano para continuar."
+          : "Limite mensal do seu plano atingido. Faça upgrade para continuar.",
+        code: trialExpired ? "trial_expired" : "quota_exceeded",
       };
       return;
     }
 
-    track(
+    dependencies.trackEvent(
       "prompt_sent",
       {
         command: actionName,
@@ -217,7 +271,7 @@ export const handleStreamRequest = async (
     try {
       console.log("[HANDLER] 7. Entrando no bloco try para chamada de IA");
       // Pass entitlement/plan to generateTextStream if needed for model selection
-      const aiStream = generateTextStream(structuredPrompt, {
+      const aiStream = dependencies.generateTextStream(structuredPrompt, {
         entitlement: entitlement.plan === "pro" || entitlement.plan === "team"
           ? "Paid"
           : "Free",
@@ -302,7 +356,7 @@ export const handleStreamRequest = async (
               { err: streamError },
               `Erro durante o streaming da resposta da IA para /api/v1/${actionName}:`,
             );
-            track(
+            dependencies.trackEvent(
               "prompt_failed",
               { command: actionName, error_code: "provider_stream_failed" },
               auth.accountId,
@@ -318,7 +372,7 @@ export const handleStreamRequest = async (
                 estimateTokens(outputText),
               );
               const creditSettleStartedAt = Date.now();
-              await billingService.settleCredits(
+              await settleReservedCredits(
                 reservation.reservationId,
                 actualCharge,
               );
@@ -330,7 +384,7 @@ export const handleStreamRequest = async (
               );
             }
             if (succeeded) {
-              track(
+              dependencies.trackEvent(
                 "prompt_completed",
                 {
                   command: actionName,
@@ -353,12 +407,11 @@ export const handleStreamRequest = async (
 
       ctx.response.body = body;
     } catch (innerError) {
-      await billingService
-        .settleCredits(reservation.reservationId, {
-          credits: 0,
-          inputTokens: 0,
-          outputTokens: 0,
-        })
+      await settleReservedCredits(reservation.reservationId, {
+        credits: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+      })
         .catch((settlementError) =>
           logger.error(
             { err: settlementError },
@@ -369,7 +422,7 @@ export const handleStreamRequest = async (
         { err: innerError },
         `Erro na chamada de IA para /api/v1/${actionName}:`,
       );
-      track(
+      dependencies.trackEvent(
         "prompt_failed",
         { command: actionName, error_code: "provider_start_failed" },
         auth.accountId,
@@ -389,7 +442,7 @@ export const handleStreamRequest = async (
     );
     const auth = ctx.state.auth as { accountId?: string } | undefined;
     if (auth?.accountId) {
-      track(
+      dependencies.trackEvent(
         "prompt_failed",
         { command: actionName, error_code: "request_failed" },
         auth.accountId,

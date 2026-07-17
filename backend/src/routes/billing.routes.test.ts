@@ -98,13 +98,33 @@ Deno.test("Billing /checkout: retorna URL de checkout com sessão válida", asyn
   const response = await createTestApp().handle(
     new Request("http://localhost/api/v1/billing/checkout", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan: "pro" }),
     }),
   );
 
   assertEquals(response?.status, 200);
   const body = await response!.json();
   assertEquals(body.url, "https://checkout.stripe.com/session/xyz");
+});
+
+Deno.test("Billing /checkout: rejeita plan ausente ou inválido", async () => {
+  const token = await withSession();
+  const response = await createTestApp().handle(
+    new Request("http://localhost/api/v1/billing/checkout", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan: "enterprise" }),
+    }),
+  );
+
+  assertEquals(response?.status, 400);
 });
 
 Deno.test("Billing /checkout: falha da Stripe retorna 500 controlado", async () => {
@@ -117,7 +137,11 @@ Deno.test("Billing /checkout: falha da Stripe retorna 500 controlado", async () 
   const response = await app.handle(
     new Request("http://localhost/api/v1/billing/checkout", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan: "pro" }),
     }),
   );
 

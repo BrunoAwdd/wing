@@ -5,6 +5,7 @@ import {
   AIProvider,
   AIRequestOptions,
   CacheUsage,
+  ChatHistoryEntry,
 } from "../providers/providerInterface.ts";
 import { withRetry } from "../providers/withRetry.ts";
 
@@ -73,7 +74,7 @@ export const generateTextStream = (
 
 export const generateChatStream = (
   prompt: string,
-  history: any[],
+  history: ChatHistoryEntry[],
   options?: AIRequestOptions,
 ): AsyncGenerator<string, CacheUsage | void, unknown> => {
   const provider = getProviderForModel(options?.model);

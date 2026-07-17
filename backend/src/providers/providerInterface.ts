@@ -1,3 +1,6 @@
+export type { ChatHistoryEntry } from "../contexts/cache/domain/ChatHistoryCompactor.ts";
+import type { ChatHistoryEntry } from "../contexts/cache/domain/ChatHistoryCompactor.ts";
+
 export interface AIRequestOptions {
   model?: string;
   temperature?: number;
@@ -48,7 +51,7 @@ export interface AIProvider {
   // `void` quando o provedor não suporta cache de prompt.
   generateChatStream(
     prompt: string,
-    history: any[],
+    history: ChatHistoryEntry[],
     options?: AIRequestOptions,
   ): AsyncGenerator<string, CacheUsage | void, unknown>;
   generateStructuredContent(

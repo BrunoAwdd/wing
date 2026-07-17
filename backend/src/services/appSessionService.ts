@@ -1,4 +1,5 @@
 import { geminiContextCache } from "./geminiContextCache.ts";
+import type { AppSession as DomainAppSession } from "../contexts/app-sessions/domain/AppSession.ts";
 import { AppSessionUseCases } from "../contexts/app-sessions/application/use-cases/AppSessionUseCases.ts";
 import { InMemoryAppSessionRepository } from "../contexts/app-sessions/infrastructure/adapters/InMemoryAppSessionRepository.ts";
 import { TimerService } from "../contexts/app-sessions/application/ports/out/TimerService.ts";
@@ -98,7 +99,7 @@ export const createAppSessionService = (
     config.maxDurationMs,
   );
 
-  const mapToLegacy = (session: any): AppSession => ({
+  const mapToLegacy = (session: DomainAppSession): AppSession => ({
     appSessionId: session.id,
     accountId: session.accountId,
     documentId: session.documentId,

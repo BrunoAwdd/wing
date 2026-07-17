@@ -2,7 +2,6 @@ export { PROMPT_VERSION, hashDocumentKey } from "../contexts/cache/domain/Prompt
 import { PromptCacheUseCases, CachedPrefix } from "../contexts/cache/application/use-cases/PromptCacheUseCases.ts";
 import { RemoteCacheClient } from "../contexts/cache/application/ports/out/CachePorts.ts";
 import { GeminiRemoteCacheClient } from "../contexts/cache/infrastructure/adapters/GeminiRemoteCacheClient.ts";
-import { SystemTimeProvider, AsyncSleepProvider } from "../contexts/cache/infrastructure/adapters/SystemProviders.ts";
 
 export type { CachedPrefix };
 

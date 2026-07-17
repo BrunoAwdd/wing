@@ -348,20 +348,26 @@ Gate de saída: o pacote instalado em uma máquina limpa abre o Wing, autentica 
 ## M5.1 - Site comercial e cadastro
 
 Objetivo: publicar uma presença comercial mínima para explicar a proposta do
-Wing e converter um visitante em conta cadastrada, reaproveitando a identidade
-e o Magic Link existentes.
+Wing e converter um visitante em cliente, do cadastro à contratação de um plano,
+reaproveitando a identidade, o Magic Link e o gateway Stripe existentes.
 
 Entregáveis:
 
 - [ ] criar uma landing page curta, responsiva e acessível no domínio oficial;
-- [ ] apresentar problema, proposta de valor, principais casos de uso e CTA de cadastro;
+- [x] apresentar problema, proposta de valor, principais casos de uso e CTA de cadastro;
 - [x] criar o fluxo `Cadastrar` com e-mail, código de acesso e confirmação da conta;
 - [x] reutilizar os endpoints de Magic Link e a criação de conta existentes,
   sem introduzir uma segunda identidade;
 - [x] aplicar rate limit, mensagens anti-enumeração e tratamento claro de erros;
+- [ ] definir e apresentar planos contratáveis com preço, créditos, limites e
+  diferenças objetivas entre Free, Pro e futuras ofertas para escritórios;
+- [ ] permitir a contratação do plano Pro no próprio site, conectando o CTA ao
+  checkout Stripe após cadastro ou autenticação;
+- [ ] tratar retorno, cancelamento e falha do checkout e confirmar no site o
+  plano efetivamente ativado;
 - [ ] disponibilizar Termos de Uso, Política de Privacidade, contato e suporte;
-- [ ] definir o destino após o cadastro: instalação do add-in, acesso ao plano
-  Free ou início do checkout;
+- [ ] definir o destino após o cadastro conforme a intenção do usuário:
+  instalação do add-in, acesso ao plano Free ou início do checkout;
 - [ ] registrar telemetria mínima do funil: visita, início do cadastro,
   cadastro concluído e checkout iniciado;
 - [ ] validar o fluxo em desktop e mobile, incluindo expiração e reenvio do código.
@@ -370,17 +376,19 @@ Fora deste milestone: blog, CMS, área editorial, painel administrativo e site
 institucional extenso.
 
 Gate de saída: uma pessoa sem conta acessa o domínio oficial, entende o produto,
-conclui o cadastro por e-mail e chega ao próximo passo comercial sem intervenção
-manual.
+compara os planos, conclui o cadastro por e-mail, contrata o plano escolhido no
+próprio site e recebe um próximo passo utilizável sem intervenção manual.
 
 ## M6 - Quality gate e piloto pago
 
 Entregáveis:
 
 - [ ] excluir artefatos gerados do lint e zerar erros no código mantido;
-- [ ] criar CI para check, testes, build, lint e validação do manifesto;
-- [ ] cobrir auth, billing, quota, chat e telemetria com testes de integração;
-- [ ] criar roteiro manual para interações reais com o Word;
+- [x] criar CI para check, testes, build, lint e validação do manifesto;
+- [ ] corrigir os erros atuais do lint e tornar todos os checks do CI verdes e
+  obrigatórios para merge;
+- [x] cobrir auth, billing, quota, chat e telemetria com testes de integração;
+- [x] criar roteiro manual para interações reais com o Word;
 - [ ] executar revisão de segurança e privacidade;
 - [ ] documentar rollback, suporte e operação do piloto;
 - [ ] liberar primeiro para um grupo pequeno de clientes pagantes.

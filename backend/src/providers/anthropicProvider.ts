@@ -1,4 +1,4 @@
-import { AIProvider, AIRequestOptions, CacheUsage } from "./providerInterface.ts";
+import { AIProvider, AIRequestOptions, CacheUsage, ChatHistoryEntry } from "./providerInterface.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
@@ -72,7 +72,7 @@ export class AnthropicProvider implements AIProvider {
 
   async *generateChatStream(
     prompt: string,
-    history: any[],
+    history: ChatHistoryEntry[],
     options?: AIRequestOptions,
   ): AsyncGenerator<string, CacheUsage, unknown> {
     const model = options?.model || "claude-sonnet-5";
@@ -82,7 +82,7 @@ export class AnthropicProvider implements AIProvider {
     // Anthropic: { role: 'user'|'assistant', content: '...' }
     const messages = history.map((h) => ({
       role: h.role === "model" ? "assistant" : h.role,
-      content: h.parts?.[0]?.text || h.content,
+      content: h.parts[0]?.text ?? "",
     }));
 
     messages.push({ role: "user", content: prompt });

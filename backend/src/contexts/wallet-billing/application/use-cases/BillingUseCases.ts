@@ -1,5 +1,5 @@
 import { WebhookIdempotencyStore } from "../ports/out/WebhookIdempotencyStore.ts";
-import { SubscriptionRepository, Subscription, Entitlement } from "../ports/out/SubscriptionRepository.ts";
+import { Plan, SubscriptionRepository, Subscription, Entitlement } from "../ports/out/SubscriptionRepository.ts";
 import { PaymentProvider } from "../ports/out/PaymentProvider.ts";
 
 export interface TelemetryPort {
@@ -39,12 +39,18 @@ export class BillingUseCases {
     return { duplicate: false };
   }
 
-  async syncSubscriptionFromStripe(stripeSubscriptionId: string, accountId: string, status: Subscription["status"], currentPeriodEndSeconds: number) {
+  async syncSubscriptionFromStripe(
+    stripeSubscriptionId: string,
+    accountId: string,
+    status: Subscription["status"],
+    currentPeriodEndSeconds: number,
+    plan: Plan,
+  ) {
     await this.subscriptionRepository.upsert({
       account_id: accountId,
       external_subscription_id: stripeSubscriptionId,
       provider: "stripe",
-      plan: "pro",
+      plan,
       status,
       current_period_end: new Date(currentPeriodEndSeconds * 1000).toISOString(),
     });

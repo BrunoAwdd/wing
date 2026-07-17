@@ -1,11 +1,35 @@
 import { Stripe } from "../deps.ts";
+import type { Plan } from "../contexts/wallet-billing/application/ports/out/SubscriptionRepository.ts";
 
 const stripeSecretKey = Deno.env.get("STRIPE_SECRET_KEY") || "";
 const webhookSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
+const priceBasic = Deno.env.get("STRIPE_PRICE_BASIC") || "";
 const pricePro = Deno.env.get("STRIPE_PRICE_PRO") || "";
 const successUrl = Deno.env.get("STRIPE_SUCCESS_URL") || "";
 const cancelUrl = Deno.env.get("STRIPE_CANCEL_URL") || "";
 const portalReturnUrl = Deno.env.get("STRIPE_PORTAL_RETURN_URL") || "";
+
+// Único mapeamento preço <-> plano pago vendido hoje (Basic e Pro — ver
+// PricingSection no site). Assinaturas Stripe fora desse mapa (ex.: preço
+// legado, teste manual no dashboard) não viram plano pago automaticamente;
+// syncSubscriptionFromStripe rejeita explicitamente em vez de assumir "pro"
+// por padrão, que cobraria/liberaria o nível errado silenciosamente.
+export type PayablePlan = "basic" | "pro";
+
+const PRICE_TO_PLAN: Record<string, PayablePlan> = {
+  ...(priceBasic ? { [priceBasic]: "basic" } : {}),
+  ...(pricePro ? { [pricePro]: "pro" } : {}),
+};
+
+const PLAN_TO_PRICE: Record<PayablePlan, string> = {
+  basic: priceBasic,
+  pro: pricePro,
+};
+
+export const resolvePlanFromPriceId = (priceId: string | undefined): Plan | null => {
+  if (!priceId) return null;
+  return PRICE_TO_PLAN[priceId] ?? null;
+};
 
 export class StripeSignatureError extends Error {
   constructor(message = "Assinatura do webhook Stripe inválida.") {
@@ -39,16 +63,25 @@ export const stripeService = {
     accountId,
     email,
     customerId,
+    plan,
   }: {
     accountId: string;
     email: string;
     customerId?: string;
+    plan: PayablePlan;
   }): Promise<string> => {
-    if (!pricePro) throw new StripeConfigError("STRIPE_PRICE_PRO não configurado.");
+    const priceId = PLAN_TO_PRICE[plan];
+    if (!priceId) {
+      throw new StripeConfigError(
+        plan === "basic"
+          ? "STRIPE_PRICE_BASIC não configurado."
+          : "STRIPE_PRICE_PRO não configurado.",
+      );
+    }
 
     const session = await getStripeClient().checkout.sessions.create({
       mode: "subscription",
-      line_items: [{ price: pricePro, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       metadata: { account_id: accountId },
       subscription_data: { metadata: { account_id: accountId } },
       success_url: successUrl,

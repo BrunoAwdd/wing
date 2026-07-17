@@ -1,4 +1,4 @@
-import { AIProvider, AIRequestOptions, CacheUsage } from "./providerInterface.ts";
+import { AIProvider, AIRequestOptions, CacheUsage, ChatHistoryEntry } from "./providerInterface.ts";
 
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
@@ -76,7 +76,7 @@ export class OpenAIProvider implements AIProvider {
 
   async *generateChatStream(
     prompt: string,
-    history: any[],
+    history: ChatHistoryEntry[],
     options?: AIRequestOptions,
   ): AsyncGenerator<string, CacheUsage, unknown> {
     // Convert history to OpenAI format if needed, or assume it's compatible
@@ -85,7 +85,7 @@ export class OpenAIProvider implements AIProvider {
 
     const messages = history.map((h) => ({
       role: h.role === "model" ? "assistant" : h.role,
-      content: h.parts?.[0]?.text || h.content, // Handle both formats
+      content: h.parts[0]?.text ?? "",
     }));
 
     messages.push({ role: "user", content: prompt });

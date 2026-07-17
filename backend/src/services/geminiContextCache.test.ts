@@ -22,7 +22,7 @@ Deno.test(
   "geminiContextCache: cria na primeira chamada, reusa (hit) na segunda dentro do TTL",
   async () => {
     let createCalls = 0;
-    let now = 0;
+    const now = 0;
     const cache = createGeminiContextCache({
       now: () => now,
       client: {

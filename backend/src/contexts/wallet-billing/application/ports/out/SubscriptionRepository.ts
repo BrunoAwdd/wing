@@ -1,9 +1,11 @@
+export type Plan = "free" | "basic" | "pro" | "team" | "enterprise";
+
 export interface Subscription {
   id: string;
   account_id: string;
   external_subscription_id: string;
   provider: "stripe" | "microsoft";
-  plan: "free" | "pro" | "team" | "enterprise";
+  plan: Plan;
   status:
     | "trialing"
     | "active"
@@ -17,7 +19,7 @@ export interface Subscription {
 }
 
 export interface Entitlement {
-  plan: "free" | "pro" | "team" | "enterprise";
+  plan: Plan;
   status: string;
 }
 

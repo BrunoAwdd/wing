@@ -32,7 +32,9 @@ const streamFrom = (chunks: string[]): AsyncGenerator<string, void, unknown> =>
 const defaultConfig: ChatConfig = {
   contextWindowEntries: 10,
   promptCacheTtlSeconds: 3_600,
-  freeMonthlyCreditLimit: 1_000,
+  trialCreditLimit: 1_000,
+  trialDurationSeconds: 30 * 24 * 60 * 60,
+  monthlyCreditLimits: { basic: 3_500, pro: 8_000 },
   maxOutputTokens: 2_048,
   defaultBillableModel: "gemini-flash-3.5",
 };
@@ -51,6 +53,13 @@ const createTestApp = (
       allowed: true,
     }),
     settleCredits: async () => 1,
+    reserveTrialCredits: async () => ({
+      reservationId: "00000000-0000-0000-0000-000000000001",
+      creditsUsed: 1,
+      allowed: true,
+      trialExpired: false,
+    }),
+    settleTrialCredits: async () => 1,
     isAccountRevoked: async () => false,
     now: () => 1_000,
     randomUUID: () => "session-1",
@@ -240,10 +249,11 @@ Deno.test("M3 chat: revalida entitlement e bloqueia cota antes do provedor", asy
       entitlementCalls += 1;
       return { plan: "free", status: "canceled" };
     },
-    reserveCredits: async () => ({
+    reserveTrialCredits: async () => ({
       reservationId: "00000000-0000-0000-0000-000000000002",
       creditsUsed: 1_000,
       allowed: false,
+      trialExpired: false,
     }),
     generateStream: () => {
       providerCalls += 1;
@@ -266,15 +276,16 @@ Deno.test("M4.5 chat: reserva histórico e liquida entrada e saída", async () =
   let reservedCredits = 0;
   let settledCredits = 0;
   const app = createTestApp({
-    reserveCredits: async (_accountId, _model, credits) => {
+    reserveTrialCredits: async (_accountId, _model, credits) => {
       reservedCredits = credits;
       return {
         reservationId: "00000000-0000-0000-0000-000000000004",
         creditsUsed: credits,
         allowed: true,
+        trialExpired: false,
       };
     },
-    settleCredits: async (_reservationId, charge) => {
+    settleTrialCredits: async (_reservationId, charge) => {
       settledCredits = charge.credits;
       return charge.credits;
     },
@@ -587,12 +598,13 @@ Deno.test("chat: desenvolvimento usa Gemini quando o provedor resolvido não tem
   const app = createTestApp({
     isProduction: false,
     isProviderAvailable: (model) => !model?.startsWith("gpt"),
-    reserveCredits: async (_accountId, model, credits) => {
+    reserveTrialCredits: async (_accountId, model, credits) => {
       reservedModel = model;
       return {
         reservationId: "00000000-0000-0000-0000-000000000011",
         creditsUsed: credits,
         allowed: true,
+        trialExpired: false,
       };
     },
     generateStream: (_message, _history, options) => {
@@ -826,7 +838,7 @@ Deno.test("M4.7 chat: escrita de cache (Anthropic) entra na cobrança final e na
 Deno.test("M4.7 chat: totalInputTokens real do provedor substitui a estimativa por tamanho de texto na liquidação", async () => {
   let settledCharge: { inputTokens: number } | undefined;
   const app = createTestApp({
-    settleCredits: async (_reservationId, charge) => {
+    settleTrialCredits: async (_reservationId, charge) => {
       settledCharge = charge as typeof settledCharge;
       return charge.credits;
     },

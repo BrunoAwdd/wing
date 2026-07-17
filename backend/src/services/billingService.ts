@@ -1,6 +1,7 @@
 import { supabase } from "./supabaseClient.ts";
 import { track } from "./telemetry.ts";
-import { type StripeSubscription } from "./stripeService.ts";
+import type { TelemetryEventName } from "./telemetryCatalog.ts";
+import { resolvePlanFromPriceId, type StripeSubscription } from "./stripeService.ts";
 import type { MicrosoftIdentity } from "./microsoftIdentityService.ts";
 
 import { WalletUseCases } from "../contexts/wallet-billing/application/use-cases/WalletUseCases.ts";
@@ -14,7 +15,14 @@ const walletUseCases = new WalletUseCases(new SupabaseWalletRepository());
 const billingUseCases = new BillingUseCases(
   new SupabaseWebhookIdempotencyStore(),
   new SupabaseSubscriptionRepository(),
-  { track: (eventName, properties, accountId) => track(eventName as any, properties as any, accountId) },
+  {
+    track: (eventName, properties, accountId) =>
+      track(
+        eventName as TelemetryEventName,
+        properties as Record<string, unknown> | undefined,
+        accountId,
+      ),
+  },
   new StripePaymentProvider(),
 );
 
@@ -36,7 +44,7 @@ export interface Subscription {
   account_id: string;
   external_subscription_id: string;
   provider: "stripe" | "microsoft";
-  plan: "free" | "pro" | "team" | "enterprise";
+  plan: "free" | "basic" | "pro" | "team" | "enterprise";
   status:
     | "trialing"
     | "active"
@@ -186,6 +194,25 @@ export const billingService = {
     return walletUseCases.settleCredits(reservationId, charge.credits, charge.inputTokens, charge.outputTokens);
   },
 
+  reserveTrialCredits: async (
+    accountId: string,
+    model: string,
+    credits: number,
+    limit: number,
+    trialDurationSeconds: number,
+  ): Promise<
+    { reservationId: string; creditsUsed: number; allowed: boolean; trialExpired: boolean }
+  > => {
+    return walletUseCases.reserveTrialCredits(accountId, model, credits, limit, trialDurationSeconds);
+  },
+
+  settleTrialCredits: async (
+    reservationId: string,
+    charge: { credits: number; inputTokens: number; outputTokens: number },
+  ): Promise<number> => {
+    return walletUseCases.settleTrialCredits(reservationId, charge.credits, charge.inputTokens, charge.outputTokens);
+  },
+
   // Incremento atômico via função SQL (RPC) — evita a condição de corrida de
   // um read-then-write em JS quando duas chamadas concorrem no mesmo mês.
   // `limit` é null pra planos pagos (sem teto); quando informado, a função só
@@ -245,11 +272,19 @@ export const billingService = {
     stripeSubscription: StripeSubscription,
     accountId: string,
   ): Promise<void> => {
+    const priceId = stripeSubscription.items.data[0]?.price?.id;
+    const plan = resolvePlanFromPriceId(priceId);
+    if (!plan) {
+      throw new Error(
+        `[Billing] Assinatura Stripe ${stripeSubscription.id} usa um preço (${priceId}) que não mapeia pra nenhum plano vendido (STRIPE_PRICE_BASIC/STRIPE_PRICE_PRO).`,
+      );
+    }
     await billingUseCases.syncSubscriptionFromStripe(
       stripeSubscription.id,
       accountId,
-      stripeSubscription.status as any,
-      stripeSubscription.current_period_end
+      stripeSubscription.status as Subscription["status"],
+      stripeSubscription.current_period_end,
+      plan,
     );
   },
 };

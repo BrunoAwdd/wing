@@ -69,7 +69,13 @@ export interface ValidatedAppSession {
 export interface ChatConfig {
   contextWindowEntries: number;
   promptCacheTtlSeconds: number;
-  freeMonthlyCreditLimit: number;
+  // "free" é o teste grátis: concessão única (não mensal — ver migration
+  // 20260717120000_add_trial_credits.sql). Planos pagos usam
+  // monthlyCreditLimits, com teto próprio por tier (ausente = ilimitado,
+  // caso de team/enterprise até M7 definir preço B2B).
+  trialCreditLimit: number;
+  trialDurationSeconds: number;
+  monthlyCreditLimits: Partial<Record<string, number>>;
   maxOutputTokens: number;
   defaultBillableModel: string;
 }
@@ -93,6 +99,17 @@ export interface ChatDependencies {
     limit: number | null,
   ): Promise<{ reservationId: string; allowed: boolean }>;
   settleCredits(
+    reservationId: string,
+    charge: { credits: number; inputTokens: number; outputTokens: number },
+  ): Promise<void>;
+  reserveTrialCredits(
+    accountId: string,
+    model: string,
+    credits: number,
+    limit: number,
+    trialDurationSeconds: number,
+  ): Promise<{ reservationId: string; allowed: boolean; trialExpired: boolean }>;
+  settleTrialCredits(
     reservationId: string,
     charge: { credits: number; inputTokens: number; outputTokens: number },
   ): Promise<void>;
@@ -272,6 +289,7 @@ export class ChatUseCases {
 
     session.inFlight = true;
     let reservationId = "";
+    let isTrial = false;
     let billableModel = this.config.defaultBillableModel;
     const historyBeforeMessage = session.history.slice();
     const systemInstruction = buildDocumentSystemInstruction(
@@ -360,21 +378,29 @@ export class ChatUseCases {
         this.config.maxOutputTokens,
       );
 
-      const usageLimit = entitlement.plan === "free"
-        ? this.config.freeMonthlyCreditLimit
-        : null;
+      isTrial = entitlement.plan === "free";
       const creditReserveStartedAt = this.deps.now();
-      const usage = await this.deps.reserveCredits(
-        accountId,
-        billableModel,
-        reservedCharge.credits,
-        usageLimit,
-      );
+      const usage = isTrial
+        ? await this.deps.reserveTrialCredits(
+          accountId,
+          billableModel,
+          reservedCharge.credits,
+          this.config.trialCreditLimit,
+          this.config.trialDurationSeconds,
+        )
+        : await this.deps.reserveCredits(
+          accountId,
+          billableModel,
+          reservedCharge.credits,
+          this.config.monthlyCreditLimits[entitlement.plan] ?? null,
+        );
       creditReserveMs = this.deps.now() - creditReserveStartedAt;
       reservationId = usage.reservationId;
 
       if (!usage.allowed) {
-        throw new QuotaExceededError();
+        throw new QuotaExceededError(
+          isTrial && Boolean((usage as { trialExpired?: boolean }).trialExpired),
+        );
       }
     } catch (error) {
       session.inFlight = false;
@@ -398,18 +424,17 @@ export class ChatUseCases {
         },
       );
     } catch (error) {
-      await this.deps.settleCredits(reservationId, {
-        credits: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-      }).catch(() => {});
+      await (isTrial ? this.deps.settleTrialCredits : this.deps.settleCredits)(
+        reservationId,
+        { credits: 0, inputTokens: 0, outputTokens: 0 },
+      ).catch(() => {});
       session.inFlight = false;
       throw error;
     }
 
     session.history.push({ role: "user", parts: [{ text: trimmedMessage }] });
 
-    const self = this;
+    const deps = this.deps;
     return (async function* () {
       let completeResponse = "";
       let cacheUsage: ProviderCacheUsage = {
@@ -421,7 +446,7 @@ export class ChatUseCases {
       // stream terminou bem, já que o finally roda nos dois casos (sucesso
       // e erro) e chat_message_interrupted já cobre o caminho de erro.
       let succeeded = false;
-      const streamStartedAt = self.deps.now();
+      const streamStartedAt = deps.now();
       let providerStreamMs = 0;
 
       try {
@@ -431,7 +456,7 @@ export class ChatUseCases {
           yield next.value;
           next = await stream.next();
         }
-        providerStreamMs = self.deps.now() - streamStartedAt;
+        providerStreamMs = deps.now() - streamStartedAt;
         if (next.value) cacheUsage = next.value;
 
         session.history.push({
@@ -441,27 +466,27 @@ export class ChatUseCases {
         session.messageCount += 1;
         succeeded = true;
       } catch (error) {
-        providerStreamMs = self.deps.now() - streamStartedAt;
+        providerStreamMs = deps.now() - streamStartedAt;
         session.history = historyBeforeMessage;
-        self.deps.trackEvent("chat_message_interrupted", {
+        deps.trackEvent("chat_message_interrupted", {
           session_message_count: session.messageCount,
         }, accountId);
         throw error;
       } finally {
         let creditSettleMs = 0;
         if (reservationId) {
-          const actualCharge = self.deps.estimateChatCharge(
+          const actualCharge = deps.estimateChatCharge(
             trimmedMessage,
             [{ parts: [{ text: systemInstruction }] }, ...compactedHistory],
             billableModel,
-            self.deps.estimateTokens(completeResponse),
+            deps.estimateTokens(completeResponse),
             cacheUsage,
           );
 
           if (promptCacheAttempted && promptCacheProvider) {
             const totalCacheTokens = cacheUsage.cachedInputTokens +
               cacheUsage.cacheWriteTokens;
-            self.deps.trackEvent(
+            deps.trackEvent(
               "chat_context_cache_used",
               {
                 cached: cacheUsage.cachedInputTokens > 0 ? 1 : 0,
@@ -473,22 +498,23 @@ export class ChatUseCases {
             );
           }
 
-          const creditSettleStartedAt = self.deps.now();
-          await self.deps.settleCredits(reservationId, actualCharge).catch(
-            () => {},
-          );
-          creditSettleMs = self.deps.now() - creditSettleStartedAt;
+          const creditSettleStartedAt = deps.now();
+          await (isTrial ? deps.settleTrialCredits : deps.settleCredits)(
+            reservationId,
+            actualCharge,
+          ).catch(() => {});
+          creditSettleMs = deps.now() - creditSettleStartedAt;
         }
 
         if (succeeded) {
-          self.deps.trackEvent(
+          deps.trackEvent(
             "chat_message_completed",
             {
               entitlement: entitlementPlan,
               message_chars: trimmedMessage.length,
               response_chars: completeResponse.length,
               session_message_count: session.messageCount,
-              duration_ms: self.deps.now() - requestStartedAt,
+              duration_ms: deps.now() - requestStartedAt,
               phases: {
                 entitlement_ms: entitlementMs,
                 ...(cacheLookupMs > 0 ? { cache_lookup_ms: cacheLookupMs } : {}),

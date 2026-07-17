@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "../deps.ts";
-import { AIProvider, CacheUsage } from "./providerInterface.ts";
+import { AIProvider, CacheUsage, ChatHistoryEntry } from "./providerInterface.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-flash-3.5";
@@ -57,7 +57,7 @@ class GeminiProvider implements AIProvider {
 
   async *generateChatStream(
     prompt: string,
-    history: any[],
+    history: ChatHistoryEntry[],
     options?: {
       model?: string;
       temperature?: number;
@@ -133,6 +133,7 @@ class GeminiProvider implements AIProvider {
         temperature: options?.temperature ?? 0,
         maxOutputTokens: options?.maxOutputTokens,
         responseMimeType: "application/json",
+        // deno-lint-ignore no-explicit-any
         responseSchema: schema as any,
       },
       systemInstruction: options?.systemInstruction,

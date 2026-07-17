@@ -92,3 +92,27 @@ Deno.test("BillingUseCases.createCustomer: delega ao PaymentProvider injetado (t
   );
   assertEquals(await useCases.createCustomer("a@b.com"), "cus_a@b.com");
 });
+
+Deno.test("BillingUseCases.syncSubscriptionFromStripe: grava o plano recebido (basic ou pro), sem assumir um default", async () => {
+  const upserted: Partial<Subscription>[] = [];
+  const repository: SubscriptionRepository = {
+    upsert: async (subscription) => {
+      upserted.push(subscription);
+    },
+    getActiveByAccountId: async () => null,
+    findByAccountId: async () => null,
+  };
+  const useCases = new BillingUseCases(
+    fakeIdempotencyStore(),
+    repository,
+    noopTelemetry,
+    fakePaymentProvider(),
+  );
+
+  await useCases.syncSubscriptionFromStripe("sub_1", "acc-1", "active", 1_800_000_000, "basic");
+
+  assertEquals(upserted.length, 1);
+  assertEquals(upserted[0].plan, "basic");
+  assertEquals(upserted[0].account_id, "acc-1");
+  assertEquals(upserted[0].external_subscription_id, "sub_1");
+});

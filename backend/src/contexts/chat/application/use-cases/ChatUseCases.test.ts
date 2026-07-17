@@ -26,7 +26,9 @@ const LIMITS: ChatLimits = {
 const CONFIG: ChatConfig = {
   contextWindowEntries: 10,
   promptCacheTtlSeconds: 3_600,
-  freeMonthlyCreditLimit: 1_000,
+  trialCreditLimit: 1_000,
+  trialDurationSeconds: 30 * 24 * 60 * 60,
+  monthlyCreditLimits: { basic: 3_500, pro: 8_000 },
   maxOutputTokens: 2_048,
   defaultBillableModel: "gemini-flash-3.5",
 };
@@ -53,6 +55,12 @@ const baseDeps = (
   getEntitlement: async () => ({ plan: "free" }),
   reserveCredits: async () => ({ reservationId: "res-1", allowed: true }),
   settleCredits: async () => {},
+  reserveTrialCredits: async () => ({
+    reservationId: "res-1",
+    allowed: true,
+    trialExpired: false,
+  }),
+  settleTrialCredits: async () => {},
   trackEvent: () => {},
   getCachedContent: async () => null,
   generateStream: () => streamFrom(["ok"]),
@@ -107,7 +115,11 @@ Deno.test("ChatUseCases.startSession: usa o modelo padrão injetado via config, 
 
 Deno.test("ChatUseCases.sendMessage: propaga QuotaExceededError quando a reserva de créditos nega o uso", async () => {
   const useCases = buildUseCases({
-    reserveCredits: async () => ({ reservationId: "res-1", allowed: false }),
+    reserveTrialCredits: async () => ({
+      reservationId: "res-1",
+      allowed: false,
+      trialExpired: false,
+    }),
   });
   await useCases.startSession("acc-1", "app-1", "doc", []);
   await assertRejects(
