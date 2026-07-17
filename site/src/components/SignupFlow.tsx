@@ -82,7 +82,7 @@ export function SignupFlow() {
       <div className="signup-card" role="status">
         <h2>Conta criada com sucesso</h2>
         <p>
-          Bem-vindo(a), {displayName}. Sua conta Wing está pronta — o próximo
+          Bem-vindo(a), {displayName}. Sua conta Robbie está pronta — o próximo
           passo é instalar o suplemento no Word para começar a usar.
         </p>
       </div>
@@ -104,10 +104,12 @@ export function SignupFlow() {
           value={code}
           onChange={(event) => setCode(event.target.value)}
           disabled={submitting}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? "signup-code-error" : undefined}
           autoFocus
         />
         {error && (
-          <p className="signup-error" role="alert">
+          <p id="signup-code-error" className="signup-error" role="alert">
             {error}
           </p>
         )}
@@ -138,10 +140,11 @@ export function SignupFlow() {
         value={email}
         onChange={(event) => setEmail(event.target.value)}
         disabled={submitting}
-        autoFocus
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? "signup-email-error" : undefined}
       />
       {error && (
-        <p className="signup-error" role="alert">
+        <p id="signup-email-error" className="signup-error" role="alert">
           {error}
         </p>
       )}
