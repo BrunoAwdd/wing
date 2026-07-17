@@ -2,19 +2,20 @@ import { useState } from "react";
 import { CheckIcon } from "./icons";
 import { SignupApiError, type PayablePlan } from "../api";
 import { getSession } from "../lib/session";
-import { setPendingCheckoutPlan, startCheckout } from "../lib/checkout";
+import { startCheckout } from "../lib/checkout";
+import { SignupModal } from "./SignupModal";
 
 export function PricingSection() {
   const [loadingPlan, setLoadingPlan] = useState<PayablePlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [modalPlan, setModalPlan] = useState<PayablePlan | null>(null);
 
   const handleSubscribe = async (plan: PayablePlan) => {
     setError(null);
     const session = getSession();
 
     if (!session) {
-      setPendingCheckoutPlan(plan);
-      document.getElementById("cadastro")?.scrollIntoView({ behavior: "smooth" });
+      setModalPlan(plan);
       return;
     }
 
@@ -134,6 +135,9 @@ export function PricingSection() {
           </div>
         </div>
       </div>
+      {modalPlan && (
+        <SignupModal plan={modalPlan} onClose={() => setModalPlan(null)} />
+      )}
     </section>
   );
 }
