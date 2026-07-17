@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { requestMagicLinkCode, SignupApiError, verifyMagicLinkCode } from "../api";
+import { saveSession } from "../lib/session";
+import { startCheckout, takePendingCheckoutPlan } from "../lib/checkout";
 
-type Step = "email" | "code" | "done";
+type Step = "email" | "code" | "done" | "redirecting";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -68,7 +70,27 @@ export function SignupFlow() {
     setSubmitting(true);
     try {
       const session = await verifyMagicLinkCode(email, code);
+      saveSession(session);
       setDisplayName(session.user.displayName ?? session.user.email);
+
+      const pendingPlan = takePendingCheckoutPlan();
+      if (pendingPlan) {
+        setStep("redirecting");
+        try {
+          await startCheckout(pendingPlan, {
+            token: session.token,
+            refreshToken: session.refreshToken,
+            user: session.user,
+          });
+          return;
+        } catch (checkoutError) {
+          setError(
+            checkoutError instanceof SignupApiError
+              ? checkoutError.message
+              : "Erro inesperado.",
+          );
+        }
+      }
       setStep("done");
     } catch (err) {
       setError(err instanceof SignupApiError ? err.message : "Erro inesperado.");
@@ -76,6 +98,20 @@ export function SignupFlow() {
       setSubmitting(false);
     }
   };
+
+  if (step === "redirecting") {
+    return (
+      <div className="signup-card" role="status">
+        <h2>Preparando seu pagamento</h2>
+        <p>Você vai ser redirecionado(a) para o checkout seguro em instantes.</p>
+        {error && (
+          <p className="signup-error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   if (step === "done") {
     return (
@@ -85,6 +121,11 @@ export function SignupFlow() {
           Bem-vindo(a), {displayName}. Sua conta Robbie está pronta — o próximo
           passo é instalar o suplemento no Word para começar a usar.
         </p>
+        {error && (
+          <p className="signup-error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

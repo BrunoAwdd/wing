@@ -1,12 +1,43 @@
+import { useState } from "react";
 import { CheckIcon } from "./icons";
+import { SignupApiError, type PayablePlan } from "../api";
+import { getSession } from "../lib/session";
+import { setPendingCheckoutPlan, startCheckout } from "../lib/checkout";
 
 export function PricingSection() {
+  const [loadingPlan, setLoadingPlan] = useState<PayablePlan | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubscribe = async (plan: PayablePlan) => {
+    setError(null);
+    const session = getSession();
+
+    if (!session) {
+      setPendingCheckoutPlan(plan);
+      document.getElementById("cadastro")?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
+
+    setLoadingPlan(plan);
+    try {
+      await startCheckout(plan, session);
+    } catch (err) {
+      setError(err instanceof SignupApiError ? err.message : "Erro inesperado.");
+      setLoadingPlan(null);
+    }
+  };
+
   return (
     <section className="section" id="precos">
       <div className="container">
         <div className="section-header">
           <span className="eyebrow">Preços</span>
           <h2 className="section-title">Teste grátis, depois escolha seu plano</h2>
+          {error && (
+            <p className="signup-error" role="alert">
+              {error}
+            </p>
+          )}
         </div>
         <div className="pricing-grid">
           <div className="price-card">
@@ -60,8 +91,13 @@ export function PricingSection() {
                 Sem interrupção entre documentos
               </li>
             </ul>
-            <button type="button" className="btn btn-secondary btn-block" aria-disabled="true">
-              Assinar Basic (em breve)
+            <button
+              type="button"
+              className="btn btn-secondary btn-block"
+              disabled={loadingPlan !== null}
+              onClick={() => handleSubscribe("basic")}
+            >
+              {loadingPlan === "basic" ? "Redirecionando…" : "Assinar Basic"}
             </button>
           </div>
 
@@ -87,8 +123,13 @@ export function PricingSection() {
                 Suporte prioritário
               </li>
             </ul>
-            <button type="button" className="btn btn-primary btn-block" aria-disabled="true">
-              Assinar Pro (em breve)
+            <button
+              type="button"
+              className="btn btn-primary btn-block"
+              disabled={loadingPlan !== null}
+              onClick={() => handleSubscribe("pro")}
+            >
+              {loadingPlan === "pro" ? "Redirecionando…" : "Assinar Pro"}
             </button>
           </div>
         </div>

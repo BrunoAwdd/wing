@@ -111,6 +111,27 @@ a {
   padding: 0 var(--space-6);
 }
 
+/* Páginas standalone (checkout success/cancel) — fora do fluxo de seções
+   da landing, centralizadas numa largura de cartão. */
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+}
+
+.page .signup-card {
+  max-width: 420px;
+  text-align: center;
+  align-items: center;
+}
+
+.page .signup-card .btn {
+  align-self: center;
+  margin-top: var(--space-2);
+}
+
 .container-reading {
   max-width: var(--container-reading);
   margin: 0 auto;

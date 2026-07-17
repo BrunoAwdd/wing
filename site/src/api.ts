@@ -13,11 +13,18 @@ export class SignupApiError extends Error {
 const GENERIC_ERROR =
   "Não foi possível concluir a solicitação agora. Tente novamente em instantes.";
 
-async function postJson(path: string, body: unknown): Promise<Response> {
+async function postJson(
+  path: string,
+  body: unknown,
+  token?: string,
+): Promise<Response> {
   try {
     return await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(body),
     });
   } catch {
@@ -76,4 +83,30 @@ export async function verifyMagicLinkCode(
   }
 
   throw new SignupApiError(GENERIC_ERROR, "verify_failed");
+}
+
+export type PayablePlan = "basic" | "pro";
+
+export async function createCheckoutSession(
+  plan: PayablePlan,
+  token: string,
+): Promise<string> {
+  const response = await postJson("/api/v1/billing/checkout", { plan }, token);
+
+  if (response.status === 200) {
+    const body = (await response.json()) as { url: string };
+    return body.url;
+  }
+
+  if (response.status === 401) {
+    throw new SignupApiError(
+      "Sua sessão expirou. Entre novamente para assinar.",
+      "session_expired",
+    );
+  }
+
+  throw new SignupApiError(
+    "Não foi possível iniciar o pagamento agora. Tente novamente em instantes.",
+    "checkout_failed",
+  );
 }
