@@ -86,12 +86,18 @@ export async function verifyMagicLinkCode(
 }
 
 export type PayablePlan = "basic" | "pro";
+export type BillingPeriod = "monthly" | "yearly";
 
 export async function createCheckoutSession(
   plan: PayablePlan,
+  billingPeriod: BillingPeriod,
   token: string,
 ): Promise<string> {
-  const response = await postJson("/api/v1/billing/checkout", { plan }, token);
+  const response = await postJson(
+    "/api/v1/billing/checkout",
+    { plan, billingPeriod },
+    token,
+  );
 
   if (response.status === 200) {
     const body = (await response.json()) as { url: string };
@@ -109,4 +115,62 @@ export async function createCheckoutSession(
     "Não foi possível iniciar o pagamento agora. Tente novamente em instantes.",
     "checkout_failed",
   );
+}
+
+export interface BillingStatus {
+  plan: "free" | "basic" | "pro" | "team" | "enterprise";
+  status: string;
+}
+
+export async function getBillingStatus(token: string): Promise<BillingStatus> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}/api/v1/billing/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    throw new SignupApiError(GENERIC_ERROR, "network_error");
+  }
+
+  if (response.status === 200) return (await response.json()) as BillingStatus;
+  if (response.status === 401) {
+    throw new SignupApiError(
+      "Sua sessão expirou. Entre novamente para consultar a assinatura.",
+      "session_expired",
+    );
+  }
+  throw new SignupApiError(GENERIC_ERROR, "status_failed");
+}
+
+export interface SupportRequest {
+  name: string;
+  email: string;
+  category: "support" | "commercial" | "privacy" | "billing" | "other";
+  subject: string;
+  message: string;
+  privacyAccepted: boolean;
+  website: string;
+}
+
+export async function createSupportRequest(
+  request: SupportRequest,
+): Promise<string> {
+  const response = await postJson("/api/v1/support/requests", request);
+  if (response.status === 201 || response.status === 202) {
+    const body = (await response.json()) as { id: string };
+    return body.id;
+  }
+  if (response.status === 429) {
+    throw new SignupApiError(
+      "Muitas solicitações enviadas. Tente novamente mais tarde.",
+      "rate_limited",
+    );
+  }
+  if (response.status === 400) {
+    throw new SignupApiError(
+      "Revise os campos obrigatórios antes de enviar.",
+      "invalid_request",
+    );
+  }
+  throw new SignupApiError(GENERIC_ERROR, "support_failed");
 }

@@ -22,6 +22,33 @@ const getClientKey = (ctx: Context): string => {
 const telemetryBuckets = new Map<string, RateLimitBucket>();
 const TELEMETRY_WINDOW_MS = 60 * 1000;
 const TELEMETRY_MAX_REQUESTS = 30;
+const supportBuckets = new Map<string, RateLimitBucket>();
+const SUPPORT_WINDOW_MS = 60 * 60 * 1000;
+const SUPPORT_MAX_REQUESTS = 5;
+
+export const supportLimiter = async (
+  ctx: Context,
+  next: () => Promise<unknown>,
+) => {
+  const now = Date.now();
+  const key = getClientKey(ctx);
+  const current = supportBuckets.get(key);
+  const bucket = current && current.resetAt > now
+    ? current
+    : { count: 0, resetAt: now + SUPPORT_WINDOW_MS };
+  bucket.count += 1;
+  supportBuckets.set(key, bucket);
+
+  if (bucket.count > SUPPORT_MAX_REQUESTS) {
+    ctx.response.status = 429;
+    ctx.response.body = {
+      error: "Muitas solicitações enviadas. Tente novamente mais tarde.",
+    };
+    return;
+  }
+
+  await next();
+};
 
 export const telemetryLimiter = async (
   ctx: Context,

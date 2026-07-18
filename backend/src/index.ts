@@ -8,10 +8,11 @@ import telemetryRouter from "./routes/telemetry.routes.ts";
 import authRouter from "./routes/auth.routes.ts";
 import magicLinkAuthRouter from "./routes/magicLinkAuth.routes.ts";
 import billingRouter from "./routes/billing.routes.ts";
+import supportRouter from "./routes/support.routes.ts";
 import { resolveCorsOrigins } from "./config/corsConfig.ts";
 
 // Dependências que estavam em api.routes.ts
-import { apiLimiter } from "./middlewares/rateLimiter.ts";
+import { apiLimiter, supportLimiter } from "./middlewares/rateLimiter.ts";
 import { requireWingSession } from "./middlewares/authMiddleware.ts";
 import { handleStreamRequest } from "./services/requestHandler.ts";
 import {
@@ -153,6 +154,12 @@ rootRouter.use(
   "/api/v1/billing",
   billingRouter.routes(),
   billingRouter.allowedMethods(),
+);
+rootRouter.use(
+  "/api/v1/support",
+  supportLimiter,
+  supportRouter.routes(),
+  supportRouter.allowedMethods(),
 );
 // SSO Microsoft incubado (desligado por padrão) — a Wing agora vende direto
 // via Stripe, sem depender do comércio da Microsoft Store, então login por

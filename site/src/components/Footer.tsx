@@ -29,10 +29,10 @@ export function Footer() {
               <a href="#faq">Perguntas frequentes</a>
             </li>
             <li>
-              <span>Contato — em breve</span>
+              <a href="/contato?assunto=comercial">Contato</a>
             </li>
             <li>
-              <span>Suporte — em breve</span>
+              <a href="/contato">Suporte</a>
             </li>
           </ul>
         </div>
@@ -40,10 +40,10 @@ export function Footer() {
           <h4>Legal</h4>
           <ul>
             <li>
-              <span>Privacidade — em breve</span>
+              <a href="/privacidade">Privacidade</a>
             </li>
             <li>
-              <span>Termos — em breve</span>
+              <a href="/termos">Termos de Uso</a>
             </li>
           </ul>
         </div>

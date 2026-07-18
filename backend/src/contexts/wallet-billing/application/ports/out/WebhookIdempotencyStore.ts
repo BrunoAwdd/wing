@@ -1,7 +1,6 @@
 export interface WebhookEventData {
   id: string;
   type: string;
-  payload: unknown;
 }
 
 export interface WebhookIdempotencyStore {

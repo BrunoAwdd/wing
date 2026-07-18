@@ -1,5 +1,10 @@
 import { WebhookIdempotencyStore } from "../ports/out/WebhookIdempotencyStore.ts";
-import { Plan, SubscriptionRepository, Subscription, Entitlement } from "../ports/out/SubscriptionRepository.ts";
+import {
+  Entitlement,
+  Plan,
+  Subscription,
+  SubscriptionRepository,
+} from "../ports/out/SubscriptionRepository.ts";
 import { PaymentProvider } from "../ports/out/PaymentProvider.ts";
 
 export interface TelemetryPort {
@@ -21,7 +26,10 @@ export class BillingUseCases {
     return this.paymentProvider.createCustomer(email);
   }
 
-  async processWebhookEvent(event: { id: string; type: string; payload: unknown }, onNewEvent: () => Promise<void>) {
+  async processWebhookEvent(
+    event: { id: string; type: string },
+    onNewEvent: () => Promise<void>,
+  ) {
     const isNew = await this.idempotencyStore.recordIfNew(event);
     if (!isNew) {
       return { duplicate: true };
@@ -31,7 +39,10 @@ export class BillingUseCases {
       await onNewEvent();
     } catch (error) {
       await this.idempotencyStore.remove(event.id).catch((cleanupError) => {
-        console.error(`[Billing] Falha ao limpar webhook_events para retry de ${event.id}:`, cleanupError);
+        console.error(
+          `[Billing] Falha ao limpar webhook_events para retry de ${event.id}:`,
+          cleanupError,
+        );
       });
       throw error;
     }
@@ -52,7 +63,8 @@ export class BillingUseCases {
       provider: "stripe",
       plan,
       status,
-      current_period_end: new Date(currentPeriodEndSeconds * 1000).toISOString(),
+      current_period_end: new Date(currentPeriodEndSeconds * 1000)
+        .toISOString(),
     });
   }
 
@@ -60,11 +72,15 @@ export class BillingUseCases {
   // pertence à aplicação, não ao adaptador do Supabase — trocar de
   // provedor de assinaturas não deve exigir reimplementar essa decisão.
   async getEntitlement(accountId: string): Promise<Entitlement> {
-    const subscription = await this.subscriptionRepository.findByAccountId(accountId);
+    const subscription = await this.subscriptionRepository.findByAccountId(
+      accountId,
+    );
     if (!subscription) return { plan: "free", status: "inactive" };
 
-    const paidStatus = subscription.status === "active" || subscription.status === "trialing";
-    const periodIsCurrent = typeof subscription.current_period_end === "string" &&
+    const paidStatus = subscription.status === "active" ||
+      subscription.status === "trialing";
+    const periodIsCurrent =
+      typeof subscription.current_period_end === "string" &&
       new Date(subscription.current_period_end).getTime() > Date.now();
 
     if (!paidStatus || !periodIsCurrent) {
@@ -78,7 +94,9 @@ export class BillingUseCases {
     await this.subscriptionRepository.upsert(subscription);
   }
 
-  async recordWebhookEventIfNew(event: { id: string; type: string; payload: unknown }): Promise<boolean> {
+  async recordWebhookEventIfNew(
+    event: { id: string; type: string },
+  ): Promise<boolean> {
     return this.idempotencyStore.recordIfNew(event);
   }
 

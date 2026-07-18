@@ -92,7 +92,7 @@ opt-in por depender da infraestrutura local.
 
 O smoke test completo no Stripe Test Mode será executado na preparação do
 ambiente que possuir `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e
-`STRIPE_PRICE_PRO`. Essa validação operacional não reabre a implementação do
+quatro preços Stripe de Basic/Pro mensal/anual. Essa validação operacional não reabre a implementação do
 milestone.
 
 Gate de saída:
@@ -365,7 +365,10 @@ Entregáveis:
   checkout Stripe após cadastro ou autenticação;
 - [ ] tratar retorno, cancelamento e falha do checkout e confirmar no site o
   plano efetivamente ativado;
-- [ ] disponibilizar Termos de Uso, Política de Privacidade, contato e suporte;
+- [ ] publicar Termos de Uso e Política de Privacidade após revisão jurídica e
+  preenchimento dos dados oficiais;
+- [x] disponibilizar formulário funcional de contato e suporte, com protocolo,
+  consentimento de privacidade, proteção antispam e persistência no backend;
 - [ ] definir o destino após o cadastro conforme a intenção do usuário:
   instalação do add-in, acesso ao plano Free ou início do checkout;
 - [ ] registrar telemetria mínima do funil: visita, início do cadastro,
@@ -389,8 +392,10 @@ Entregáveis:
   obrigatórios para merge;
 - [x] cobrir auth, billing, quota, chat e telemetria com testes de integração;
 - [x] criar roteiro manual para interações reais com o Word;
-- [ ] executar revisão de segurança e privacidade;
-- [ ] documentar rollback, suporte e operação do piloto;
+- [ ] concluir a revisão de segurança e privacidade iniciada em
+  `DOCS/SECURITY_PRIVACY_REVIEW.md`, zerando os achados P0;
+- [x] documentar rollback, suporte e operação do piloto em
+  `DOCS/PILOT_OPERATIONS.md`;
 - [ ] liberar primeiro para um grupo pequeno de clientes pagantes.
 
 Gate de saída: todos os checks são bloqueantes no CI e o piloto possui responsável, métricas, suporte e rollback definidos.

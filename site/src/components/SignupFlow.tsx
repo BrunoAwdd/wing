@@ -1,5 +1,12 @@
 import { FormEvent, useEffect, useState } from "react";
-import { requestMagicLinkCode, SignupApiError, verifyMagicLinkCode, type AuthSession, type PayablePlan } from "../api";
+import {
+  type AuthSession,
+  type BillingPeriod,
+  type PayablePlan,
+  requestMagicLinkCode,
+  SignupApiError,
+  verifyMagicLinkCode,
+} from "../api";
 import { saveSession, type StoredSession } from "../lib/session";
 import { startCheckout } from "../lib/checkout";
 
@@ -8,9 +15,9 @@ type Step = "email" | "code" | "done" | "redirecting" | "checkout-failed";
 const RESEND_COOLDOWN_SECONDS = 60;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const PLAN_LABEL: Record<PayablePlan, string> = {
-  basic: "Basic — R$ 24,90/mês",
-  pro: "Pro — R$ 49,90/mês",
+const PLAN_LABEL: Record<PayablePlan, Record<BillingPeriod, string>> = {
+  basic: { monthly: "Basic — R$ 24,90/mês", yearly: "Basic — R$ 249/ano" },
+  pro: { monthly: "Pro — R$ 49,90/mês", yearly: "Pro — R$ 499/ano" },
 };
 
 interface SignupFlowProps {
@@ -18,9 +25,10 @@ interface SignupFlowProps {
   // após confirmar o código, vai direto pro checkout desse plano em vez
   // de mostrar a tela de sucesso genérica.
   plan?: PayablePlan | null;
+  billingPeriod?: BillingPeriod;
 }
 
-export function SignupFlow({ plan = null }: SignupFlowProps) {
+export function SignupFlow({ plan = null, billingPeriod = "monthly" }: SignupFlowProps) {
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -43,7 +51,7 @@ export function SignupFlow({ plan = null }: SignupFlowProps) {
     }
     setStep("redirecting");
     try {
-      await startCheckout(plan, {
+      await startCheckout(plan, billingPeriod, {
         token: activeSession.token,
         refreshToken: activeSession.refreshToken,
         user: activeSession.user,
@@ -125,7 +133,7 @@ export function SignupFlow({ plan = null }: SignupFlowProps) {
   };
 
   const planContext = plan && (step === "email" || step === "code")
-    ? <p className="signup-plan-context">Assinando o plano {PLAN_LABEL[plan]}</p>
+    ? <p className="signup-plan-context">Assinando o plano {PLAN_LABEL[plan][billingPeriod]}</p>
     : null;
 
   if (step === "redirecting") {
@@ -143,7 +151,7 @@ export function SignupFlow({ plan = null }: SignupFlowProps) {
         <h2>Conta criada — falta o pagamento</h2>
         <p>
           Bem-vindo(a), {displayName}. Sua conta Robbie foi criada, mas não
-          conseguimos iniciar o pagamento do plano {plan ? PLAN_LABEL[plan] : ""} agora.
+          conseguimos iniciar o pagamento do plano {plan ? PLAN_LABEL[plan][billingPeriod] : ""} agora.
         </p>
         {error && (
           <p className="signup-error" role="alert">

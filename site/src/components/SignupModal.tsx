@@ -1,13 +1,14 @@
 import { useEffect } from "react";
 import { SignupFlow } from "./SignupFlow";
-import type { PayablePlan } from "../api";
+import type { BillingPeriod, PayablePlan } from "../api";
 
 interface SignupModalProps {
   plan: PayablePlan;
+  billingPeriod: BillingPeriod;
   onClose: () => void;
 }
 
-export function SignupModal({ plan, onClose }: SignupModalProps) {
+export function SignupModal({ plan, billingPeriod, onClose }: SignupModalProps) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -36,7 +37,7 @@ export function SignupModal({ plan, onClose }: SignupModalProps) {
         >
           ×
         </button>
-        <SignupFlow plan={plan} />
+        <SignupFlow plan={plan} billingPeriod={billingPeriod} />
       </div>
     </div>
   );

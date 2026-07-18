@@ -43,6 +43,10 @@ const planRule: StringRule = {
   type: "string",
   values: ["free", "basic", "pro", "team", "enterprise"],
 };
+const billingPeriodRule: StringRule = {
+  type: "string",
+  values: ["monthly", "yearly"],
+};
 const countRule: IntegerRule = { type: "integer", min: 0, max: 10_000_000 };
 const cacheProviderRule: StringRule = {
   type: "string",
@@ -170,8 +174,14 @@ export const TELEMETRY_CATALOG = {
     source: "server",
     properties: { reason: { type: "string", values: ["invalid_token"] } },
   },
-  checkout_started: { source: "server", properties: { plan: planRule } },
-  checkout_failed: { source: "server", properties: { plan: planRule } },
+  checkout_started: {
+    source: "server",
+    properties: { plan: planRule, billing_period: billingPeriodRule },
+  },
+  checkout_failed: {
+    source: "server",
+    properties: { plan: planRule, billing_period: billingPeriodRule },
+  },
   subscription_started: { source: "server", properties: {} },
   subscription_updated: { source: "server", properties: {} },
   subscription_canceled: { source: "server", properties: {} },

@@ -1,18 +1,25 @@
 import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { BillingUseCases } from "./BillingUseCases.ts";
-import { SubscriptionRepository, Subscription } from "../ports/out/SubscriptionRepository.ts";
+import {
+  Subscription,
+  SubscriptionRepository,
+} from "../ports/out/SubscriptionRepository.ts";
 import { WebhookIdempotencyStore } from "../ports/out/WebhookIdempotencyStore.ts";
 import { PaymentProvider } from "../ports/out/PaymentProvider.ts";
 
 const fakeSubscriptionRepository = (
-  subscription: Pick<Subscription, "plan" | "status" | "current_period_end"> | null,
+  subscription:
+    | Pick<Subscription, "plan" | "status" | "current_period_end">
+    | null,
 ): SubscriptionRepository => ({
   upsert: async () => {},
   getActiveByAccountId: async () => null,
   findByAccountId: async () => subscription,
 });
 
-const fakeIdempotencyStore = (recorded = new Set<string>()): WebhookIdempotencyStore => ({
+const fakeIdempotencyStore = (
+  recorded = new Set<string>(),
+): WebhookIdempotencyStore => ({
   recordIfNew: async (event) => {
     if (recorded.has(event.id)) return false;
     recorded.add(event.id);
@@ -36,7 +43,10 @@ Deno.test("BillingUseCases.getEntitlement: sem assinatura cai pro plano free", a
     noopTelemetry,
     fakePaymentProvider(),
   );
-  assertEquals(await useCases.getEntitlement("acc-1"), { plan: "free", status: "inactive" });
+  assertEquals(await useCases.getEntitlement("acc-1"), {
+    plan: "free",
+    status: "inactive",
+  });
 });
 
 Deno.test("BillingUseCases.getEntitlement: status pago com período expirado cai pro plano free", async () => {
@@ -71,15 +81,29 @@ Deno.test("BillingUseCases.getEntitlement: status pago e período corrente mant�
 
 Deno.test("BillingUseCases.recordWebhookEventIfNew/removeWebhookEvent: delega ao idempotencyStore sem acesso privado", async () => {
   const store = fakeIdempotencyStore();
-  const useCases = new BillingUseCases(store, fakeSubscriptionRepository(null), noopTelemetry, fakePaymentProvider());
+  const useCases = new BillingUseCases(
+    store,
+    fakeSubscriptionRepository(null),
+    noopTelemetry,
+    fakePaymentProvider(),
+  );
 
-  const first = await useCases.recordWebhookEventIfNew({ id: "evt-1", type: "x", payload: {} });
-  const second = await useCases.recordWebhookEventIfNew({ id: "evt-1", type: "x", payload: {} });
+  const first = await useCases.recordWebhookEventIfNew({
+    id: "evt-1",
+    type: "x",
+  });
+  const second = await useCases.recordWebhookEventIfNew({
+    id: "evt-1",
+    type: "x",
+  });
   assertEquals(first, true);
   assertEquals(second, false);
 
   await useCases.removeWebhookEvent("evt-1");
-  const third = await useCases.recordWebhookEventIfNew({ id: "evt-1", type: "x", payload: {} });
+  const third = await useCases.recordWebhookEventIfNew({
+    id: "evt-1",
+    type: "x",
+  });
   assertEquals(third, true);
 });
 
@@ -109,7 +133,13 @@ Deno.test("BillingUseCases.syncSubscriptionFromStripe: grava o plano recebido (b
     fakePaymentProvider(),
   );
 
-  await useCases.syncSubscriptionFromStripe("sub_1", "acc-1", "active", 1_800_000_000, "basic");
+  await useCases.syncSubscriptionFromStripe(
+    "sub_1",
+    "acc-1",
+    "active",
+    1_800_000_000,
+    "basic",
+  );
 
   assertEquals(upserted.length, 1);
   assertEquals(upserted[0].plan, "basic");
