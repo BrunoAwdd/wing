@@ -42,9 +42,10 @@ const QUALITY_LEVEL_MIN_PLAN: Record<QualityLevel, "free" | "pro"> = {
 
 const PLAN_RANK: Record<string, number> = {
   free: 0,
-  pro: 1,
-  team: 1,
-  enterprise: 1,
+  basic: 1,
+  pro: 2,
+  team: 2,
+  enterprise: 2,
 };
 
 export const isQualityLevelAllowedForPlan = (

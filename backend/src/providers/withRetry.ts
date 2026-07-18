@@ -1,4 +1,4 @@
-import { AIProvider, AIRequestOptions } from "./providerInterface.ts";
+import { AIProvider, AIRequestOptions, CacheUsage, ChatHistoryEntry } from "./providerInterface.ts";
 
 const MAX_RETRIES = 3;
 const INITIAL_BACKOFF_MS = 1000;
@@ -30,12 +30,12 @@ export function withRetry(provider: AIProvider): AIProvider {
 
           // If the stream completes without error, we are done.
           return;
-        } catch (error: any) {
-          lastError = error;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
           console.warn(
             `Attempt ${attempt + 1} of ${
               MAX_RETRIES + 1
-            } failed for generateContentStream: ${error.message}`,
+            } failed for generateContentStream: ${lastError.message}`,
           );
 
           if (attempt < MAX_RETRIES) {
@@ -56,9 +56,9 @@ export function withRetry(provider: AIProvider): AIProvider {
 
     async *generateChatStream(
       prompt: string,
-      history: any[],
+      history: ChatHistoryEntry[],
       options?: AIRequestOptions,
-    ): AsyncGenerator<string, number | void, unknown> {
+    ): AsyncGenerator<string, CacheUsage | void, unknown> {
       let lastError: Error | undefined;
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -70,12 +70,12 @@ export function withRetry(provider: AIProvider): AIProvider {
             next = await stream.next();
           }
           return next.value;
-        } catch (error: any) {
-          lastError = error;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
           console.warn(
             `Attempt ${attempt + 1} of ${
               MAX_RETRIES + 1
-            } failed for generateChatStream: ${error.message}`,
+            } failed for generateChatStream: ${lastError.message}`,
           );
 
           if (attempt < MAX_RETRIES) {
@@ -107,12 +107,12 @@ export function withRetry(provider: AIProvider): AIProvider {
             schema,
             options,
           );
-        } catch (error: any) {
-          lastError = error;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
           console.warn(
             `Attempt ${attempt + 1} of ${
               MAX_RETRIES + 1
-            } failed for generateStructuredContent: ${error.message}`,
+            } failed for generateStructuredContent: ${lastError.message}`,
           );
 
           if (attempt < MAX_RETRIES) {

@@ -1,15 +1,18 @@
-import { Application, Context, oakCors, Router } from "./deps.ts";
+import { Application, Context, Router } from "./deps.ts";
 import logger from "./services/logger.ts";
 import chatRouter from "./routes/chat.routes.ts";
+import appSessionRouter from "./routes/appSession.routes.ts";
 import legalRouter from "./routes/legal.routes.ts";
 import designRouter from "./routes/design.routes.ts";
 import telemetryRouter from "./routes/telemetry.routes.ts";
 import authRouter from "./routes/auth.routes.ts";
 import magicLinkAuthRouter from "./routes/magicLinkAuth.routes.ts";
 import billingRouter from "./routes/billing.routes.ts";
+import supportRouter from "./routes/support.routes.ts";
+import { resolveCorsOrigins } from "./config/corsConfig.ts";
 
 // Dependências que estavam em api.routes.ts
-import { apiLimiter } from "./middlewares/rateLimiter.ts";
+import { apiLimiter, supportLimiter } from "./middlewares/rateLimiter.ts";
 import { requireWingSession } from "./middlewares/authMiddleware.ts";
 import { handleStreamRequest } from "./services/requestHandler.ts";
 import {
@@ -22,6 +25,11 @@ import {
 
 // --- Configuração de Ambiente ---
 const port = parseInt(Deno.env.get("PORT") || "3005");
+const isProduction = Deno.env.get("NODE_ENV") === "production";
+const corsOrigins = resolveCorsOrigins(
+  Deno.env.get("CORS_ALLOWED_ORIGINS"),
+  isProduction,
+);
 
 // --- Inicialização da Aplicação ---
 const app = new Application();
@@ -34,20 +42,33 @@ app.use(async (ctx: Context, next: () => Promise<unknown>) => {
   await next();
 });
 
-// CORS Rígido (RFC 012)
-app.use(
-  oakCors({
-    origin: [
-      "https://localhost:3000", // Frontend Dev
-      "https://localhost:3002", // Frontend Dev (Webpack default)
-      "https://wing.ai", // Prod
-      "null", // Office.js (Local)
-    ],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    methods: ["GET", "POST", "DELETE", "OPTIONS"],
-    optionsSuccessStatus: 200,
-  }),
-);
+// CORS restrito ao host do add-in. Produção falha na inicialização se a
+// allowlist oficial não tiver sido configurada.
+app.use(async (ctx: Context, next: () => Promise<unknown>) => {
+  const origin = ctx.request.headers.get("Origin");
+  if (!origin || !corsOrigins.includes(origin)) {
+    await next();
+    return;
+  }
+
+  ctx.response.headers.set("Access-Control-Allow-Origin", origin);
+  ctx.response.headers.append("Vary", "Origin");
+  ctx.response.headers.set(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Wing-App-Session",
+  );
+  ctx.response.headers.set(
+    "Access-Control-Allow-Methods",
+    "GET, POST, DELETE, OPTIONS",
+  );
+
+  if (ctx.request.method === "OPTIONS") {
+    ctx.response.status = 200;
+    return;
+  }
+
+  await next();
+});
 
 // Logger middleware
 app.use(async (ctx: Context, next: () => Promise<unknown>) => {
@@ -71,6 +92,23 @@ const rootRouter = new Router();
 
 rootRouter.get("/", (ctx: Context) => {
   ctx.response.body = "Backend do Wing rodando com Deno e Oak!";
+});
+
+// M5: health check pra load balancer / orquestrador de produção. Não checa
+// dependências externas (Supabase, Stripe, provedores de IA) de propósito —
+// isso seria um readiness check mais caro e com falsos negativos por
+// instabilidade de terceiros; aqui só confirma que o processo está de pé e
+// respondendo. As variáveis de ambiente obrigatórias já são validadas no
+// boot (corsConfig, wingSessionService etc. lançam e derrubam o processo se
+// faltar algo), então "processo rodando" já implica config mínima válida.
+const serverStartedAt = Date.now();
+rootRouter.get("/health", (ctx: Context) => {
+  ctx.response.status = 200;
+  ctx.response.body = {
+    status: "ok",
+    uptimeSeconds: Math.floor((Date.now() - serverStartedAt) / 1000),
+    timestamp: new Date().toISOString(),
+  };
 });
 
 // Lógica de criação das rotas da API movida para cá
@@ -97,6 +135,11 @@ rootRouter.use(
   chatRouter.allowedMethods(),
 );
 rootRouter.use(
+  "/api/v1/app-sessions",
+  appSessionRouter.routes(),
+  appSessionRouter.allowedMethods(),
+);
+rootRouter.use(
   "/api/v1/telemetry",
   telemetryRouter.routes(),
   telemetryRouter.allowedMethods(),
@@ -111,6 +154,12 @@ rootRouter.use(
   "/api/v1/billing",
   billingRouter.routes(),
   billingRouter.allowedMethods(),
+);
+rootRouter.use(
+  "/api/v1/support",
+  supportLimiter,
+  supportRouter.routes(),
+  supportRouter.allowedMethods(),
 );
 // SSO Microsoft incubado (desligado por padrão) — a Wing agora vende direto
 // via Stripe, sem depender do comércio da Microsoft Store, então login por
@@ -163,7 +212,7 @@ if (import.meta.main) {
 
   // Determine if we are in development (NODE_ENV=development)
   // Treat any environment that is NOT explicitly "production" as development
-  const isDev = Deno.env.get("NODE_ENV") !== "production";
+  const isDev = !isProduction;
 
   if (isDev) {
     // Development: use plain HTTP (no TLS) to avoid proxy EPROTO errors

@@ -12,6 +12,7 @@ import {
 import { track } from "../services/telemetry.ts";
 import type { TelemetryEventName } from "../services/telemetryCatalog.ts";
 import { requireWingSession } from "../middlewares/authMiddleware.ts";
+import { MagicLinkAuthUseCases } from "../contexts/identity/application/use-cases/MagicLinkAuthUseCases.ts";
 
 export interface MagicLinkRouteDependencies {
   requestCode: (email: string) => Promise<void>;
@@ -54,6 +55,18 @@ export const createMagicLinkAuthRouter = (
 ) => {
   const router = new Router();
 
+  const useCases = new MagicLinkAuthUseCases(
+    { requestCode: dependencies.requestCode, verifyCode: dependencies.verifyCode },
+    { issueSession: dependencies.issueSession },
+    {
+      issueRefreshToken: dependencies.issueRefreshToken,
+      consumeRefreshToken: dependencies.consumeRefreshToken,
+      revokeRefreshToken: dependencies.revokeRefreshToken,
+    },
+    { getOrCreateFromEmail: dependencies.getOrCreateAccount, getAccount: dependencies.getAccount, getPlan: dependencies.getPlan },
+    { trackEvent: dependencies.trackEvent },
+  );
+
   router.post("/magic-link/request", async (ctx) => {
     let email: unknown;
     try {
@@ -71,7 +84,7 @@ export const createMagicLinkAuthRouter = (
     }
 
     try {
-      await dependencies.requestCode(email.trim().toLowerCase());
+      await useCases.requestMagicLink(email.trim().toLowerCase());
     } catch (error) {
       console.error("[MagicLinkAuth] Falha ao solicitar código:", error);
       ctx.response.status = 503;
@@ -81,7 +94,6 @@ export const createMagicLinkAuthRouter = (
       return;
     }
 
-    dependencies.trackEvent("magic_link_requested");
     ctx.response.status = 202;
     ctx.response.body = { ok: true };
   });
@@ -104,33 +116,12 @@ export const createMagicLinkAuthRouter = (
     }
 
     try {
-      const verified = await dependencies.verifyCode(
+      const response = await useCases.verifyMagicLink(
         email.trim().toLowerCase(),
         code.trim(),
       );
-      const account = await dependencies.getOrCreateAccount(verified.email);
-      const plan = await dependencies.getPlan(account.id);
-      const session = await dependencies.issueSession({
-        accountId: account.id,
-      });
-      // Persistência de login: sem isto, o painel esquece a sessão a cada
-      // vez que o Word fecha/reabre — o refresh token (vida longa) permite
-      // renovar a sessão Wing (curta) silenciosamente, sem pedir e-mail/
-      // código de novo.
-      const refreshToken = await dependencies.issueRefreshToken(account.id);
-
-      dependencies.trackEvent("magic_link_verified", undefined, account.id);
       ctx.response.status = 201;
-      ctx.response.body = {
-        ...session,
-        refreshToken: refreshToken.token,
-        refreshTokenExpiresAt: refreshToken.expiresAt,
-        user: {
-          email: account.email,
-          displayName: account.display_name || null,
-          plan,
-        },
-      };
+      ctx.response.body = response;
     } catch (error) {
       if (error instanceof MagicLinkValidationError) {
         dependencies.trackEvent("magic_link_failed", {
@@ -147,10 +138,6 @@ export const createMagicLinkAuthRouter = (
     }
   });
 
-  // Troca silenciosa do refresh token (vida longa) por uma sessão Wing nova
-  // (curta) — permite reabrir o Word sem pedir e-mail/código de novo. Sem
-  // requireWingSession: o próprio refresh token já é a prova de identidade
-  // aqui (a sessão curta anterior pode já ter expirado).
   router.post("/refresh", async (ctx) => {
     let refreshToken: unknown;
     try {
@@ -168,26 +155,9 @@ export const createMagicLinkAuthRouter = (
     }
 
     try {
-      const accountId = await dependencies.consumeRefreshToken(refreshToken);
-      const account = await dependencies.getAccount(accountId);
-      const plan = await dependencies.getPlan(accountId);
-      const session = await dependencies.issueSession({ accountId });
-      // Rotação: o refresh token usado já foi revogado por consumeRefreshToken
-      // acima; emite um novo pra substituí-lo na resposta.
-      const nextRefreshToken = await dependencies.issueRefreshToken(accountId);
-
-      dependencies.trackEvent("session_refreshed", undefined, accountId);
+      const response = await useCases.refreshSession(refreshToken);
       ctx.response.status = 201;
-      ctx.response.body = {
-        ...session,
-        refreshToken: nextRefreshToken.token,
-        refreshTokenExpiresAt: nextRefreshToken.expiresAt,
-        user: {
-          email: account.email,
-          displayName: account.display_name || null,
-          plan,
-        },
-      };
+      ctx.response.body = response;
     } catch (error) {
       if (error instanceof RefreshTokenError) {
         ctx.response.status = 401;
@@ -201,8 +171,6 @@ export const createMagicLinkAuthRouter = (
     }
   });
 
-  // Logout é agnóstico de proveniência (Microsoft ou magic link) — por isso
-  // vive aqui, sempre montado, em vez de junto da rota Microsoft-específica.
   router.delete("/session", requireWingSession, async (ctx) => {
     let refreshToken: unknown;
     try {
@@ -212,13 +180,7 @@ export const createMagicLinkAuthRouter = (
     }
 
     if (isNonEmptyString(refreshToken)) {
-      // Revoga só este dispositivo — não afeta outros logins da mesma conta.
-      await dependencies.revokeRefreshToken(refreshToken).catch((error) => {
-        console.error(
-          "[MagicLinkAuth] Falha ao revogar refresh token no logout:",
-          error,
-        );
-      });
+      await useCases.logout(refreshToken);
     }
 
     ctx.response.status = 204;

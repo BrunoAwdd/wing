@@ -9,6 +9,21 @@ export interface Paragraph {
   text: string;
 }
 
+export type TranslationPlacement = "replace" | "before" | "after";
+
+const TRANSLATION_COLOR = "#44546A";
+
+const translationStyleNameFor = (styleName: string): string => {
+  const normalized = normalizeStyleName(styleName);
+  if (/heading 1|titulo 1/.test(normalized)) return "Wing Translation Heading 1";
+  if (/heading 2|titulo 2/.test(normalized)) return "Wing Translation Heading 2";
+  if (/heading 3|titulo 3/.test(normalized)) return "Wing Translation Heading 3";
+  if (/subtitle|subtitulo/.test(normalized)) return "Wing Translation Subtitle";
+  if (/title|titulo/.test(normalized)) return "Wing Translation Title";
+  if (/quote|citacao/.test(normalized)) return "Wing Translation Quote";
+  return "Wing Translation";
+};
+
 interface WordInteractionProps {
   addLog: (message: string, type: LogEntry["type"]) => void;
 }
@@ -191,8 +206,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     }
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items/text");
         await context.sync();
 
@@ -226,13 +240,26 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     }
   }, [addLog]);
 
+  const selectAllDocument = useCallback(async () => {
+    try {
+      await Word.run(async (context) => {
+        context.document.body.select();
+        await context.sync();
+      });
+      await handleSelectionChange();
+      addLog("Documento inteiro selecionado.", "success");
+    } catch (error) {
+      console.error("Erro em selectAllDocument:", error);
+      addLog("Não foi possível selecionar o documento inteiro.", "error");
+    }
+  }, [addLog, handleSelectionChange]);
+
   const acceptAllSuggestions = async (paragraphsToInsert: Paragraph[]) => {
     isUpdatingRef.current = true;
     setIsUpdating(true);
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items");
         await context.sync();
 
@@ -261,8 +288,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     setIsUpdating(true);
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items");
         await context.sync();
 
@@ -289,8 +315,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     setIsUpdating(true);
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items");
         await context.sync();
 
@@ -312,6 +337,151 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
         setIsUpdating(false);
       }, 300);
     }
+  };
+
+  const insertTranslatedParagraphs = async (
+    suggestions: { index: number; text: string }[],
+    placement: Exclude<TranslationPlacement, "replace">
+  ) => {
+    isUpdatingRef.current = true;
+    setIsUpdating(true);
+    try {
+      await Word.run(async (context) => {
+        const paragraphs = context.document.getSelection().paragraphs;
+        paragraphs.load("items");
+        await context.sync();
+
+        for (const paragraph of paragraphs.items) {
+          paragraph.load(
+            "style,styleBuiltIn,alignment,firstLineIndent,leftIndent,rightIndent,lineSpacing,spaceBefore,spaceAfter"
+          );
+          paragraph.font.load("name,size,bold,italic,underline");
+        }
+        await context.sync();
+
+        const supportsCustomStyles = Office.context.requirements.isSetSupported("WordApi", "1.5");
+        const availableTranslationStyles = new Set<string>();
+
+        if (supportsCustomStyles) {
+          const styles = context.document.getStyles();
+          const styleSources = new Map<string, Word.Paragraph>();
+          for (const { index } of suggestions) {
+            const source = paragraphs.items[index];
+            if (!source) continue;
+            const sourceStyle = source.style || String(source.styleBuiltIn || "");
+            const translatedStyleName = translationStyleNameFor(sourceStyle);
+            if (!styleSources.has(translatedStyleName)) {
+              styleSources.set(translatedStyleName, source);
+            }
+          }
+
+          const existingStyles = Array.from(styleSources.keys()).map((name) => {
+            const style = styles.getByNameOrNullObject(name);
+            style.load("isNullObject");
+            return { name, style };
+          });
+          await context.sync();
+
+          for (const { name, style } of existingStyles) {
+            if (!style.isNullObject) {
+              availableTranslationStyles.add(name);
+              continue;
+            }
+
+            const source = styleSources.get(name);
+            if (!source) continue;
+            const created = context.document.addStyle(name, Word.StyleType.paragraph);
+            created.quickStyle = true;
+            created.visibility = true;
+            if (source.font.name) created.font.name = source.font.name;
+            if (typeof source.font.size === "number") created.font.size = source.font.size;
+            if (typeof source.font.bold === "boolean") created.font.bold = source.font.bold;
+            if (typeof source.font.italic === "boolean") created.font.italic = source.font.italic;
+            created.font.color = TRANSLATION_COLOR;
+            if (source.alignment !== Word.Alignment.mixed) {
+              created.paragraphFormat.alignment = source.alignment;
+            }
+            if (typeof source.firstLineIndent === "number") {
+              created.paragraphFormat.firstLineIndent = source.firstLineIndent;
+            }
+            if (typeof source.leftIndent === "number") {
+              created.paragraphFormat.leftIndent = source.leftIndent;
+            }
+            if (typeof source.rightIndent === "number") {
+              created.paragraphFormat.rightIndent = source.rightIndent;
+            }
+            if (typeof source.lineSpacing === "number") {
+              created.paragraphFormat.lineSpacing = source.lineSpacing;
+            }
+            if (typeof source.spaceBefore === "number") {
+              created.paragraphFormat.spaceBefore = source.spaceBefore;
+            }
+            if (typeof source.spaceAfter === "number") {
+              created.paragraphFormat.spaceAfter = source.spaceAfter;
+            }
+            availableTranslationStyles.add(name);
+          }
+          await context.sync();
+        }
+
+        for (const { index, text } of suggestions) {
+          const source = paragraphs.items[index];
+          if (!source) continue;
+
+          const inserted = source.insertParagraph(
+            text,
+            placement === "before" ? Word.InsertLocation.before : Word.InsertLocation.after
+          );
+          const sourceStyle = source.style || String(source.styleBuiltIn || "");
+          const translatedStyleName = translationStyleNameFor(sourceStyle);
+          if (availableTranslationStyles.has(translatedStyleName)) {
+            inserted.style = translatedStyleName;
+            continue;
+          }
+
+          // Fallback para hosts anteriores ao WordApi 1.5.
+          inserted.style = source.style;
+          inserted.alignment = source.alignment;
+          inserted.firstLineIndent = source.firstLineIndent;
+          inserted.leftIndent = source.leftIndent;
+          inserted.rightIndent = source.rightIndent;
+          inserted.lineSpacing = source.lineSpacing;
+          inserted.spaceBefore = source.spaceBefore;
+          inserted.spaceAfter = source.spaceAfter;
+          inserted.font.name = source.font.name;
+          inserted.font.size = source.font.size;
+          inserted.font.bold = source.font.bold;
+          inserted.font.italic = source.font.italic;
+          inserted.font.underline = source.font.underline;
+          inserted.font.color = TRANSLATION_COLOR;
+        }
+
+        await context.sync();
+      });
+      addLog(
+        `Tradução inserida ${placement === "before" ? "antes" : "depois"} do texto original.`,
+        "success"
+      );
+    } catch (error) {
+      console.error("Erro em insertTranslatedParagraphs:", error);
+      addLog("Erro ao inserir a tradução no documento.", "error");
+    } finally {
+      setTimeout(() => {
+        isUpdatingRef.current = false;
+        setIsUpdating(false);
+      }, 300);
+    }
+  };
+
+  const applyTranslatedSuggestions = async (
+    suggestions: { index: number; text: string }[],
+    placement: TranslationPlacement
+  ) => {
+    if (placement === "replace") {
+      await acceptMultipleSuggestions(suggestions);
+      return;
+    }
+    await insertTranslatedParagraphs(suggestions, placement);
   };
 
   const insertAtCursor = async (textToInsert: string) => {
@@ -524,124 +694,165 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
           "WordApiDesktop",
           "1.3"
         );
-        const supportsStyleShading = Office.context.requirements.isSetSupported(
-          "WordApi",
-          "1.6"
-        );
+        const supportsStyleShading = Office.context.requirements.isSetSupported("WordApi", "1.6");
 
         const normalSpec: StyleSpec = {
-            names: [theme.wordStyleNames?.normal, "Normal"].filter(Boolean) as string[],
-            fontName: pickString("normal", "fontName", theme.bodyFontName),
-            fontSize: pickNumber("normal", "fontSize", theme.bodyFontSize),
-            color: pickString("normal", "color", theme.bodyColor),
-            bold: pickBoolean("normal", "bold", false),
-            italic: pickBoolean("normal", "italic", false),
-            alignment: pickAlignment("normal", Word.Alignment.justified),
-            firstLineIndent: pickNumber("normal", "firstLineIndent", theme.paragraphFirstLineIndent),
-            leftIndent: pickNumber("normal", "leftIndent", 0),
-            rightIndent: pickNumber("normal", "rightIndent", 0),
-            lineSpacing: pickNumber("normal", "lineSpacing", theme.bodyLineSpacing),
-            spaceBefore: 0,
-            spaceAfter: pickNumber("normal", "spaceAfter", theme.paragraphSpaceAfter),
+          names: [theme.wordStyleNames?.normal, "Normal"].filter(Boolean) as string[],
+          fontName: pickString("normal", "fontName", theme.bodyFontName),
+          fontSize: pickNumber("normal", "fontSize", theme.bodyFontSize),
+          color: pickString("normal", "color", theme.bodyColor),
+          bold: pickBoolean("normal", "bold", false),
+          italic: pickBoolean("normal", "italic", false),
+          alignment: pickAlignment("normal", Word.Alignment.justified),
+          firstLineIndent: pickNumber("normal", "firstLineIndent", theme.paragraphFirstLineIndent),
+          leftIndent: pickNumber("normal", "leftIndent", 0),
+          rightIndent: pickNumber("normal", "rightIndent", 0),
+          lineSpacing: pickNumber("normal", "lineSpacing", theme.bodyLineSpacing),
+          spaceBefore: 0,
+          spaceAfter: pickNumber("normal", "spaceAfter", theme.paragraphSpaceAfter),
         };
         const titleSpec: StyleSpec = {
-            names: [theme.wordStyleNames?.title, "Title", "Título", "Titulo"].filter(Boolean) as string[],
-            fontName: pickString("title", "fontName", theme.titleFontName || theme.headingFontName),
-            fontSize: pickNumber("title", "fontSize", theme.titleFontSize),
-            color: pickString("title", "color", theme.headingColor),
-            bold: pickBoolean("title", "bold", true),
-            italic: pickBoolean("title", "italic", false),
-            alignment: pickAlignment("title", Word.Alignment.left),
-            firstLineIndent: pickNumber("title", "firstLineIndent", 0),
-            leftIndent: pickNumber("title", "leftIndent", 0),
-            rightIndent: pickNumber("title", "rightIndent", 0),
-            lineSpacing: pickNumber("title", "lineSpacing", theme.titleFontSize + 4),
-            spaceBefore: pickNumber("title", "spaceBefore", 0),
-            spaceAfter: pickNumber("title", "spaceAfter", 10),
-            borderBottomColor: pickOptionalString("title", "borderBottomColor"),
-            borderBottomWidth: pickOptionalString("title", "borderBottomWidth"),
+          names: [theme.wordStyleNames?.title, "Title", "Título", "Titulo"].filter(
+            Boolean
+          ) as string[],
+          fontName: pickString("title", "fontName", theme.titleFontName || theme.headingFontName),
+          fontSize: pickNumber("title", "fontSize", theme.titleFontSize),
+          color: pickString("title", "color", theme.headingColor),
+          bold: pickBoolean("title", "bold", true),
+          italic: pickBoolean("title", "italic", false),
+          alignment: pickAlignment("title", Word.Alignment.left),
+          firstLineIndent: pickNumber("title", "firstLineIndent", 0),
+          leftIndent: pickNumber("title", "leftIndent", 0),
+          rightIndent: pickNumber("title", "rightIndent", 0),
+          lineSpacing: pickNumber("title", "lineSpacing", theme.titleFontSize + 4),
+          spaceBefore: pickNumber("title", "spaceBefore", 0),
+          spaceAfter: pickNumber("title", "spaceAfter", 10),
+          borderBottomColor: pickOptionalString("title", "borderBottomColor"),
+          borderBottomWidth: pickOptionalString("title", "borderBottomWidth"),
         };
         const subtitleSpec: StyleSpec = {
-            names: [theme.wordStyleNames?.subtitle, "Subtitle", "Subtítulo", "Subtitulo"].filter(Boolean) as string[],
-            fontName: pickString("subtitle", "fontName", theme.subtitleFontName || theme.bodyFontName),
-            fontSize: pickNumber("subtitle", "fontSize", theme.subtitleFontSize),
-            color: pickString("subtitle", "color", theme.accentColor),
-            bold: pickBoolean("subtitle", "bold", false),
-            italic: pickBoolean("subtitle", "italic", true),
-            alignment: pickAlignment("subtitle", Word.Alignment.left),
-            firstLineIndent: pickNumber("subtitle", "firstLineIndent", 0),
-            leftIndent: pickNumber("subtitle", "leftIndent", 0),
-            rightIndent: pickNumber("subtitle", "rightIndent", 0),
-            lineSpacing: pickNumber("subtitle", "lineSpacing", theme.subtitleFontSize + 4),
-            spaceBefore: pickNumber("subtitle", "spaceBefore", 0),
-            spaceAfter: pickNumber("subtitle", "spaceAfter", 12),
+          names: [theme.wordStyleNames?.subtitle, "Subtitle", "Subtítulo", "Subtitulo"].filter(
+            Boolean
+          ) as string[],
+          fontName: pickString(
+            "subtitle",
+            "fontName",
+            theme.subtitleFontName || theme.bodyFontName
+          ),
+          fontSize: pickNumber("subtitle", "fontSize", theme.subtitleFontSize),
+          color: pickString("subtitle", "color", theme.accentColor),
+          bold: pickBoolean("subtitle", "bold", false),
+          italic: pickBoolean("subtitle", "italic", true),
+          alignment: pickAlignment("subtitle", Word.Alignment.left),
+          firstLineIndent: pickNumber("subtitle", "firstLineIndent", 0),
+          leftIndent: pickNumber("subtitle", "leftIndent", 0),
+          rightIndent: pickNumber("subtitle", "rightIndent", 0),
+          lineSpacing: pickNumber("subtitle", "lineSpacing", theme.subtitleFontSize + 4),
+          spaceBefore: pickNumber("subtitle", "spaceBefore", 0),
+          spaceAfter: pickNumber("subtitle", "spaceAfter", 12),
         };
         const heading1Spec: StyleSpec = {
-            names: [theme.wordStyleNames?.heading1, "Heading 1", "Heading1", "Título 1", "Titulo 1"].filter(Boolean) as string[],
-            fontName: pickString("heading1", "fontName", theme.heading1FontName || theme.headingFontName),
-            fontSize: pickNumber("heading1", "fontSize", theme.heading1FontSize),
-            color: pickString("heading1", "color", theme.headingColor),
-            bold: pickBoolean("heading1", "bold", true),
-            italic: pickBoolean("heading1", "italic", false),
-            alignment: pickAlignment("heading1", Word.Alignment.left),
-            firstLineIndent: pickNumber("heading1", "firstLineIndent", 0),
-            leftIndent: pickNumber("heading1", "leftIndent", 0),
-            rightIndent: pickNumber("heading1", "rightIndent", 0),
-            lineSpacing: pickNumber("heading1", "lineSpacing", theme.heading1FontSize + 4),
-            spaceBefore: pickNumber("heading1", "spaceBefore", 14),
-            spaceAfter: pickNumber("heading1", "spaceAfter", 8),
-            borderBottomColor: pickOptionalString("heading1", "borderBottomColor"),
-            borderBottomWidth: pickOptionalString("heading1", "borderBottomWidth"),
+          names: [
+            theme.wordStyleNames?.heading1,
+            "Heading 1",
+            "Heading1",
+            "Título 1",
+            "Titulo 1",
+          ].filter(Boolean) as string[],
+          fontName: pickString(
+            "heading1",
+            "fontName",
+            theme.heading1FontName || theme.headingFontName
+          ),
+          fontSize: pickNumber("heading1", "fontSize", theme.heading1FontSize),
+          color: pickString("heading1", "color", theme.headingColor),
+          bold: pickBoolean("heading1", "bold", true),
+          italic: pickBoolean("heading1", "italic", false),
+          alignment: pickAlignment("heading1", Word.Alignment.left),
+          firstLineIndent: pickNumber("heading1", "firstLineIndent", 0),
+          leftIndent: pickNumber("heading1", "leftIndent", 0),
+          rightIndent: pickNumber("heading1", "rightIndent", 0),
+          lineSpacing: pickNumber("heading1", "lineSpacing", theme.heading1FontSize + 4),
+          spaceBefore: pickNumber("heading1", "spaceBefore", 14),
+          spaceAfter: pickNumber("heading1", "spaceAfter", 8),
+          borderBottomColor: pickOptionalString("heading1", "borderBottomColor"),
+          borderBottomWidth: pickOptionalString("heading1", "borderBottomWidth"),
         };
         const heading2Spec: StyleSpec = {
-            names: [theme.wordStyleNames?.heading2, "Heading 2", "Heading2", "Título 2", "Titulo 2"].filter(Boolean) as string[],
-            fontName: pickString("heading2", "fontName", theme.heading2FontName || theme.headingFontName),
-            fontSize: pickNumber("heading2", "fontSize", theme.heading2FontSize),
-            color: pickString("heading2", "color", theme.headingColor),
-            bold: pickBoolean("heading2", "bold", true),
-            italic: pickBoolean("heading2", "italic", false),
-            alignment: pickAlignment("heading2", Word.Alignment.left),
-            firstLineIndent: pickNumber("heading2", "firstLineIndent", 0),
-            leftIndent: pickNumber("heading2", "leftIndent", 0),
-            rightIndent: pickNumber("heading2", "rightIndent", 0),
-            lineSpacing: pickNumber("heading2", "lineSpacing", theme.heading2FontSize + 4),
-            spaceBefore: pickNumber("heading2", "spaceBefore", 12),
-            spaceAfter: pickNumber("heading2", "spaceAfter", 6),
-            borderBottomColor: pickOptionalString("heading2", "borderBottomColor"),
-            borderBottomWidth: pickOptionalString("heading2", "borderBottomWidth"),
+          names: [
+            theme.wordStyleNames?.heading2,
+            "Heading 2",
+            "Heading2",
+            "Título 2",
+            "Titulo 2",
+          ].filter(Boolean) as string[],
+          fontName: pickString(
+            "heading2",
+            "fontName",
+            theme.heading2FontName || theme.headingFontName
+          ),
+          fontSize: pickNumber("heading2", "fontSize", theme.heading2FontSize),
+          color: pickString("heading2", "color", theme.headingColor),
+          bold: pickBoolean("heading2", "bold", true),
+          italic: pickBoolean("heading2", "italic", false),
+          alignment: pickAlignment("heading2", Word.Alignment.left),
+          firstLineIndent: pickNumber("heading2", "firstLineIndent", 0),
+          leftIndent: pickNumber("heading2", "leftIndent", 0),
+          rightIndent: pickNumber("heading2", "rightIndent", 0),
+          lineSpacing: pickNumber("heading2", "lineSpacing", theme.heading2FontSize + 4),
+          spaceBefore: pickNumber("heading2", "spaceBefore", 12),
+          spaceAfter: pickNumber("heading2", "spaceAfter", 6),
+          borderBottomColor: pickOptionalString("heading2", "borderBottomColor"),
+          borderBottomWidth: pickOptionalString("heading2", "borderBottomWidth"),
         };
         const heading3Spec: StyleSpec = {
-            names: [theme.wordStyleNames?.heading3, "Heading 3", "Heading3", "Título 3", "Titulo 3"].filter(Boolean) as string[],
-            fontName: pickString("heading3", "fontName", theme.heading3FontName || theme.headingFontName),
-            fontSize: pickNumber("heading3", "fontSize", theme.heading3FontSize),
-            color: pickString("heading3", "color", theme.accentColor),
-            bold: pickBoolean("heading3", "bold", true),
-            italic: pickBoolean("heading3", "italic", false),
-            alignment: pickAlignment("heading3", Word.Alignment.left),
-            firstLineIndent: pickNumber("heading3", "firstLineIndent", 0),
-            leftIndent: pickNumber("heading3", "leftIndent", 0),
-            rightIndent: pickNumber("heading3", "rightIndent", 0),
-            lineSpacing: pickNumber("heading3", "lineSpacing", theme.heading3FontSize + 4),
-            spaceBefore: pickNumber("heading3", "spaceBefore", 10),
-            spaceAfter: pickNumber("heading3", "spaceAfter", 4),
+          names: [
+            theme.wordStyleNames?.heading3,
+            "Heading 3",
+            "Heading3",
+            "Título 3",
+            "Titulo 3",
+          ].filter(Boolean) as string[],
+          fontName: pickString(
+            "heading3",
+            "fontName",
+            theme.heading3FontName || theme.headingFontName
+          ),
+          fontSize: pickNumber("heading3", "fontSize", theme.heading3FontSize),
+          color: pickString("heading3", "color", theme.accentColor),
+          bold: pickBoolean("heading3", "bold", true),
+          italic: pickBoolean("heading3", "italic", false),
+          alignment: pickAlignment("heading3", Word.Alignment.left),
+          firstLineIndent: pickNumber("heading3", "firstLineIndent", 0),
+          leftIndent: pickNumber("heading3", "leftIndent", 0),
+          rightIndent: pickNumber("heading3", "rightIndent", 0),
+          lineSpacing: pickNumber("heading3", "lineSpacing", theme.heading3FontSize + 4),
+          spaceBefore: pickNumber("heading3", "spaceBefore", 10),
+          spaceAfter: pickNumber("heading3", "spaceAfter", 4),
         };
         const quoteSpec: StyleSpec = {
-            names: [theme.wordStyleNames?.quote, "Quote", "Citação", "Citacao", "Intense Quote"].filter(Boolean) as string[],
-            fontName: pickString("quote", "fontName", theme.quoteFontName || theme.bodyFontName),
-            fontSize: pickNumber("quote", "fontSize", theme.quoteFontSize),
-            color: pickString("quote", "color", theme.quoteColor),
-            bold: pickBoolean("quote", "bold", false),
-            italic: pickBoolean("quote", "italic", true),
-            alignment: pickAlignment("quote", Word.Alignment.justified),
-            firstLineIndent: pickNumber("quote", "firstLineIndent", 0),
-            leftIndent: pickNumber("quote", "leftIndent", theme.quoteLeftIndent),
-            rightIndent: pickNumber("quote", "rightIndent", theme.quoteLeftIndent),
-            lineSpacing: pickNumber("quote", "lineSpacing", theme.bodyLineSpacing),
-            spaceBefore: pickNumber("quote", "spaceBefore", 6),
-            spaceAfter: pickNumber("quote", "spaceAfter", 8),
-            borderLeftColor: pickOptionalString("quote", "borderLeftColor"),
-            borderLeftWidth: pickOptionalString("quote", "borderLeftWidth"),
-            shadingColor: pickOptionalString("quote", "shadingColor"),
+          names: [
+            theme.wordStyleNames?.quote,
+            "Quote",
+            "Citação",
+            "Citacao",
+            "Intense Quote",
+          ].filter(Boolean) as string[],
+          fontName: pickString("quote", "fontName", theme.quoteFontName || theme.bodyFontName),
+          fontSize: pickNumber("quote", "fontSize", theme.quoteFontSize),
+          color: pickString("quote", "color", theme.quoteColor),
+          bold: pickBoolean("quote", "bold", false),
+          italic: pickBoolean("quote", "italic", true),
+          alignment: pickAlignment("quote", Word.Alignment.justified),
+          firstLineIndent: pickNumber("quote", "firstLineIndent", 0),
+          leftIndent: pickNumber("quote", "leftIndent", theme.quoteLeftIndent),
+          rightIndent: pickNumber("quote", "rightIndent", theme.quoteLeftIndent),
+          lineSpacing: pickNumber("quote", "lineSpacing", theme.bodyLineSpacing),
+          spaceBefore: pickNumber("quote", "spaceBefore", 6),
+          spaceAfter: pickNumber("quote", "spaceAfter", 8),
+          borderLeftColor: pickOptionalString("quote", "borderLeftColor"),
+          borderLeftWidth: pickOptionalString("quote", "borderLeftWidth"),
+          shadingColor: pickOptionalString("quote", "shadingColor"),
         };
         const styleSpecs: StyleSpec[] = [
           normalSpec,
@@ -790,25 +1001,23 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
             continue;
           }
 
-          const syncedHeadingLevel =
-            styleNameMatches(localStyle, theme.wordStyleNames?.heading1, "heading1")
-              ? 1
-              : styleNameMatches(localStyle, theme.wordStyleNames?.heading2, "heading2")
-                ? 2
-                : styleNameMatches(localStyle, theme.wordStyleNames?.heading3, "heading3")
-                  ? 3
-                  : null;
+          const syncedHeadingLevel = styleNameMatches(
+            localStyle,
+            theme.wordStyleNames?.heading1,
+            "heading1"
+          )
+            ? 1
+            : styleNameMatches(localStyle, theme.wordStyleNames?.heading2, "heading2")
+              ? 2
+              : styleNameMatches(localStyle, theme.wordStyleNames?.heading3, "heading3")
+                ? 3
+                : null;
 
           if (/^Heading[1-3]$/i.test(builtInStyle) || syncedHeadingLevel) {
             const level =
               syncedHeadingLevel ||
               (builtInStyle === "Heading1" ? 1 : builtInStyle === "Heading2" ? 2 : 3);
-            const spec =
-              level === 1
-                ? heading1Spec
-                : level === 2
-                  ? heading2Spec
-                  : heading3Spec;
+            const spec = level === 1 ? heading1Spec : level === 2 ? heading2Spec : heading3Spec;
             applySpecToParagraph(paragraph, spec);
             await applyParagraphBorder(
               paragraph,
@@ -878,9 +1087,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
           .map((name) => cleanString(name))
           .filter((name): name is string => Boolean(name));
 
-        const knownStyleNames = Array.from(
-          new Set([...usedStyleNames, ...collectionStyleNames])
-        );
+        const knownStyleNames = Array.from(new Set([...usedStyleNames, ...collectionStyleNames]));
 
         const findBestStyleNames = (role: string, fallbacks: string[]): string[] => {
           const scored = knownStyleNames
@@ -893,9 +1100,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
         };
 
         const paragraphSampleByRole = (role: string): SyncedStyle | null => {
-          let best:
-            | { score: number; sample: SyncedStyle }
-            | null = null;
+          let best: { score: number; sample: SyncedStyle } | null = null;
 
           for (const paragraph of bodyParagraphs.items as any[]) {
             const localStyle = String(paragraph.style || "");
@@ -965,10 +1170,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
             });
 
             if (loadedStyle) {
-              return readLoadedStyle(
-                loadedStyle,
-                cleanString(loadedStyle.nameLocal) || name
-              );
+              return readLoadedStyle(loadedStyle, cleanString(loadedStyle.nameLocal) || name);
             }
 
             const style = styles.getByNameOrNullObject(name) as any;
@@ -982,9 +1184,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
         };
 
         const normal = await readStyle(findBestStyleNames("normal", ["Normal"]));
-        const title = await readStyle(
-          findBestStyleNames("title", ["Title", "Título", "Titulo"])
-        );
+        const title = await readStyle(findBestStyleNames("title", ["Title", "Título", "Titulo"]));
         const subtitle = await readStyle(
           findBestStyleNames("subtitle", ["Subtitle", "Subtítulo", "Subtitulo"])
         );
@@ -1086,13 +1286,9 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
           paragraphFirstLineIndent:
             resolvedNormal?.firstLineIndent ?? fallbackTheme.paragraphFirstLineIndent,
           headingFontName:
-            resolvedHeading1?.fontName ||
-            resolvedTitle?.fontName ||
-            fallbackTheme.headingFontName,
+            resolvedHeading1?.fontName || resolvedTitle?.fontName || fallbackTheme.headingFontName,
           titleFontName:
-            resolvedTitle?.fontName ||
-            fallbackTheme.titleFontName ||
-            fallbackTheme.headingFontName,
+            resolvedTitle?.fontName || fallbackTheme.titleFontName || fallbackTheme.headingFontName,
           subtitleFontName:
             resolvedSubtitle?.fontName ||
             fallbackTheme.subtitleFontName ||
@@ -1110,13 +1306,9 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
             fallbackTheme.heading3FontName ||
             fallbackTheme.headingFontName,
           headingColor:
-            resolvedHeading1?.color ||
-            resolvedTitle?.color ||
-            fallbackTheme.headingColor,
+            resolvedHeading1?.color || resolvedTitle?.color || fallbackTheme.headingColor,
           accentColor:
-            resolvedHeading3?.color ||
-            resolvedSubtitle?.color ||
-            fallbackTheme.accentColor,
+            resolvedHeading3?.color || resolvedSubtitle?.color || fallbackTheme.accentColor,
           titleFontSize: resolvedTitle?.fontSize || fallbackTheme.titleFontSize,
           subtitleFontSize: resolvedSubtitle?.fontSize || fallbackTheme.subtitleFontSize,
           heading1FontSize: resolvedHeading1?.fontSize || fallbackTheme.heading1FontSize,
@@ -1124,9 +1316,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
           heading3FontSize: resolvedHeading3?.fontSize || fallbackTheme.heading3FontSize,
           quoteColor: resolvedQuote?.color || fallbackTheme.quoteColor,
           quoteFontName:
-            resolvedQuote?.fontName ||
-            fallbackTheme.quoteFontName ||
-            fallbackTheme.bodyFontName,
+            resolvedQuote?.fontName || fallbackTheme.quoteFontName || fallbackTheme.bodyFontName,
           quoteFontSize: resolvedQuote?.fontSize || fallbackTheme.quoteFontSize,
           quoteLeftIndent: resolvedQuote?.leftIndent ?? fallbackTheme.quoteLeftIndent,
         };
@@ -1199,7 +1389,10 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
         await context.sync();
         inserted = true;
       });
-      addLog(inserted ? "Tabela inserida no documento." : "Não foi possível inserir a tabela.", inserted ? "success" : "error");
+      addLog(
+        inserted ? "Tabela inserida no documento." : "Não foi possível inserir a tabela.",
+        inserted ? "success" : "error"
+      );
       return inserted;
     } catch (error) {
       console.error("Erro em insertTableFromCandidate:", error);
@@ -1247,7 +1440,10 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
         await context.sync();
         inserted = true;
       });
-      addLog(inserted ? "Gráfico inserido no documento." : "Não foi possível inserir o gráfico.", inserted ? "success" : "error");
+      addLog(
+        inserted ? "Gráfico inserido no documento." : "Não foi possível inserir o gráfico.",
+        inserted ? "success" : "error"
+      );
       return inserted;
     } catch (error) {
       console.error("Erro em insertChartAtAnchor:", error);
@@ -1271,9 +1467,11 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
 
   return {
     originalText,
+    selectAllDocument,
     acceptAllSuggestions,
     acceptSingleSuggestion,
     acceptMultipleSuggestions,
+    applyTranslatedSuggestions,
     insertAtCursor,
     insertHtmlAtCursor,
     highlightClauses,

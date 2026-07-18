@@ -25,10 +25,7 @@ const blockColor: Record<string, string> = {
   alert: "#B91C1C",
 };
 
-export const buildVisualLawHtml = (
-  panel: VisualLawPanel,
-  theme: DocumentTheme
-): string => {
+export const buildVisualLawHtml = (panel: VisualLawPanel, theme: DocumentTheme): string => {
   const title = escapeHtml(panel.title || "Visual Law");
   const subtitle = escapeHtml(panel.subtitle || "");
   const accentColor = theme.accentColor;

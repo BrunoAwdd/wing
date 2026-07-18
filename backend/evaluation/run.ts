@@ -1,6 +1,7 @@
+import process from "node:process";
 import { generateTextStream } from "../src/services/aiService";
-import * as fs from "fs/promises";
-import * as path from "path";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
 import {
   buildFixPrompt,
   buildTranslatePrompt,

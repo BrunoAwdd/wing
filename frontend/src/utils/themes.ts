@@ -1,11 +1,5 @@
 export type WordStyleRole =
-  | "normal"
-  | "title"
-  | "subtitle"
-  | "heading1"
-  | "heading2"
-  | "heading3"
-  | "quote";
+  "normal" | "title" | "subtitle" | "heading1" | "heading2" | "heading3" | "quote";
 
 export interface WordStyleFormat {
   fontName?: string;
@@ -162,116 +156,6 @@ const visualLawPremiumFormats: Partial<Record<WordStyleRole, WordStyleFormat>> =
     fontName: "Georgia",
     fontSize: 10.5,
     color: "#475569",
-    bold: false,
-    italic: true,
-    alignment: "Justified",
-    lineSpacing: 15.5,
-    spaceBefore: 5,
-    spaceAfter: 6,
-    firstLineIndent: 0,
-    leftIndent: 22,
-    rightIndent: 12,
-    borderLeftColor: "#D8C89A",
-    borderLeftWidth: "Pt025",
-    shadingColor: "#FAF9F5",
-  },
-};
-
-const executivePetitionFormats: Partial<Record<WordStyleRole, WordStyleFormat>> = {
-  normal: {
-    fontName: "Aptos",
-    fontSize: 11,
-    color: "#1F2933",
-    bold: false,
-    italic: false,
-    alignment: "Justified",
-    lineSpacing: 16,
-    spaceBefore: 0,
-    spaceAfter: 4,
-    firstLineIndent: 18,
-    leftIndent: 0,
-    rightIndent: 0,
-  },
-  title: {
-    fontName: "Aptos Display",
-    fontSize: 18,
-    color: "#102A43",
-    bold: true,
-    italic: false,
-    alignment: "Left",
-    lineSpacing: 21.5,
-    spaceBefore: 0,
-    spaceAfter: 8,
-    firstLineIndent: 0,
-    leftIndent: 0,
-    rightIndent: 0,
-    borderBottomColor: "#D8C89A",
-    borderBottomWidth: "Pt050",
-  },
-  subtitle: {
-    fontName: "Aptos",
-    fontSize: 11,
-    color: "#52606D",
-    bold: false,
-    italic: true,
-    alignment: "Left",
-    lineSpacing: 14.2,
-    spaceBefore: 0,
-    spaceAfter: 8,
-    firstLineIndent: 0,
-    leftIndent: 12,
-    rightIndent: 12,
-  },
-  heading1: {
-    fontName: "Aptos Display",
-    fontSize: 13.5,
-    color: "#102A43",
-    bold: true,
-    italic: false,
-    alignment: "Left",
-    lineSpacing: 16.8,
-    spaceBefore: 10,
-    spaceAfter: 4,
-    firstLineIndent: 0,
-    leftIndent: 0,
-    rightIndent: 0,
-    borderBottomColor: "#E3D8B8",
-    borderBottomWidth: "Pt025",
-  },
-  heading2: {
-    fontName: "Aptos",
-    fontSize: 12.3,
-    color: "#8A6F3D",
-    bold: true,
-    italic: false,
-    alignment: "Left",
-    lineSpacing: 15.4,
-    spaceBefore: 7,
-    spaceAfter: 3,
-    firstLineIndent: 0,
-    leftIndent: 0,
-    rightIndent: 0,
-    borderBottomColor: "#E8DFC6",
-    borderBottomWidth: "Pt025",
-  },
-  heading3: {
-    fontName: "Aptos",
-    fontSize: 11,
-    color: "#4B5563",
-    bold: true,
-    italic: false,
-    alignment: "Left",
-    lineSpacing: 14,
-    spaceBefore: 5,
-    spaceAfter: 2,
-    firstLineIndent: 0,
-    leftIndent: 10,
-    rightIndent: 0,
-  },
-  quote: {
-    fontName: "Georgia",
-    fontSize: 10.5,
-    color: "#334E68",
     bold: false,
     italic: true,
     alignment: "Justified",
@@ -614,7 +498,10 @@ const carbonCopperPalette: EditorialPalette = {
 };
 
 const navyGoldFormats = withEditorialPalette(visualLawPremiumFormats, navyGoldPalette);
-const graphiteChampagneFormats = withEditorialPalette(visualLawPremiumFormats, graphiteChampagnePalette);
+const graphiteChampagneFormats = withEditorialPalette(
+  visualLawPremiumFormats,
+  graphiteChampagnePalette
+);
 const slateSageFormats = withEditorialPalette(contractClarityFormats, slateSagePalette);
 const mineralBurgundyFormats = withEditorialPalette(opinionBoardFormats, mineralBurgundyPalette);
 const carbonCopperFormats = withEditorialPalette(visualLawPremiumFormats, carbonCopperPalette);

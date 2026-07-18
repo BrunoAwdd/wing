@@ -9,7 +9,13 @@ import {
   Spinner,
   Button,
   Text,
+  Dialog,
+  DialogSurface,
+  DialogBody,
+  DialogTitle,
+  DialogContent,
 } from "@fluentui/react-components";
+import { Dismiss24Regular } from "@fluentui/react-icons";
 import StatusBar, { LogEntry } from "./StatusBar";
 import DiffViewer from "./DiffViewer";
 import ActionButtonGroup from "./ActionButtonGroup";
@@ -23,7 +29,8 @@ import LegalAnalysisPage from "./LegalAnalysisPage";
 import DocumentDesignPage from "./DocumentDesignPage";
 import { track } from "../services/telemetry";
 import { useAppSetup } from "../hooks/useAppSetup";
-import { useWordInteraction, Paragraph } from "../hooks/useWordInteraction";
+import { useAppSession } from "../hooks/useAppSession";
+import { useWordInteraction, Paragraph, TranslationPlacement } from "../hooks/useWordInteraction";
 import LastUpdatesPage from "./LastUpdatesPage";
 import { useAIApi } from "../hooks/useAIApi";
 import { documentObserver } from "../../services/documentObserver";
@@ -50,6 +57,7 @@ const useStyles = makeStyles({
     flexDirection: "column",
     flexGrow: 1,
     overflowY: "hidden",
+    minHeight: 0,
   },
   content: {
     flexGrow: 1,
@@ -65,6 +73,31 @@ const useStyles = makeStyles({
     justifyContent: "center",
     height: "100vh",
     gap: "16px",
+  },
+  resultLoading: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "160px",
+    gap: "12px",
+  },
+  dialogSurface: {
+    width: "calc(100vw - 24px)",
+    maxWidth: "none",
+    height: "calc(100vh - 24px)",
+    maxHeight: "none",
+    padding: "16px",
+  },
+  dialogBody: {
+    height: "100%",
+    minHeight: 0,
+  },
+  dialogContent: {
+    display: "flex",
+    flexDirection: "column",
+    minHeight: 0,
+    overflowY: "auto",
   },
 });
 
@@ -91,10 +124,12 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
   const [command, setCommand] = useState("fix");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showRating, setShowRating] = useState(false);
+  const [isResultModalOpen, setIsResultModalOpen] = useState(false);
   const [tone, setTone] = useState("formal");
   const [language, setLanguage] = useState("inglês");
   // QUICK_MODEL_ROUTING_PLAN Entrega 3: "usar Equilibrado como padrão".
   const [qualityLevel, setQualityLevel] = useState("equilibrado");
+  const [translationPlacement, setTranslationPlacement] = useState<TranslationPlacement>("replace");
 
   const addLog = useCallback((message: string, type: LogEntry["type"]) => {
     const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -125,10 +160,13 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     signOut,
     isOnline,
   } = useAppSetup({ addLog, showFluentToast });
+  const { appSessionId, renewAppSession } = useAppSession({ sessionToken, isOnline });
   const {
     originalText,
+    selectAllDocument,
     acceptSingleSuggestion,
     acceptMultipleSuggestions,
+    applyTranslatedSuggestions,
     insertAtCursor,
     insertHtmlAtCursor,
     highlightClauses,
@@ -167,6 +205,19 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setIsSuggestionAvailable(false);
   }, [originalText]);
 
+  useEffect(() => {
+    if (!isLoading && !showRating && suggestedText.length === 0) {
+      setIsSuggestionAvailable(false);
+      setIsResultModalOpen(false);
+    }
+  }, [isLoading, showRating, suggestedText.length, setIsSuggestionAvailable]);
+
+  useEffect(() => {
+    if (isLoading || isSuggestionAvailable || showRating) {
+      setIsResultModalOpen(true);
+    }
+  }, [isLoading, isSuggestionAvailable, showRating]);
+
   const handleAcceptAll = async () => {
     if (suggestedText.length === 0) return;
     track("suggestion_accepted_all", { command: lastCommand }, sessionToken);
@@ -182,7 +233,11 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
       .filter((s) => s !== null);
 
     if (suggestionsToApply.length > 0) {
-      await acceptMultipleSuggestions(suggestionsToApply);
+      if (lastCommand === "translate") {
+        await applyTranslatedSuggestions(suggestionsToApply, translationPlacement);
+      } else {
+        await acceptMultipleSuggestions(suggestionsToApply);
+      }
     }
 
     setSuggestedText([]);
@@ -197,6 +252,11 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setShowRating(true);
   };
 
+  const closeResult = () => {
+    if (isLoading) return;
+    setIsResultModalOpen(false);
+  };
+
   const handleAcceptSingle = async (id: string) => {
     const suggestion = suggestedText.find((s) => s.id === id);
     if (!suggestion) return;
@@ -205,7 +265,14 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     if (originalIndex === -1) return;
 
     track("suggestion_accepted_single", { command: lastCommand }, sessionToken);
-    await acceptSingleSuggestion(originalIndex, suggestion.text);
+    if (lastCommand === "translate") {
+      await applyTranslatedSuggestions(
+        [{ index: originalIndex, text: suggestion.text }],
+        translationPlacement
+      );
+    } else {
+      await acceptSingleSuggestion(originalIndex, suggestion.text);
+    }
     setSuggestedText((prev) => prev.filter((s) => s.id !== id));
   };
 
@@ -222,16 +289,19 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     setShowRating(false);
   };
 
-  const handlePresetSelect = (presetCommand: string) => {
+  const handlePresetSelect = (
+    presetCommand: string,
+    selectedTranslationPlacement?: TranslationPlacement
+  ) => {
+    if (presetCommand === "translate" && selectedTranslationPlacement) {
+      setTranslationPlacement(selectedTranslationPlacement);
+    }
     setCommand(presetCommand);
     fetchSuggestion(presetCommand);
   };
 
   // Renderização
-  if (
-    !MICROSOFT_SSO_ENABLED &&
-    (authStatus === "needs_login" || authStatus === "loading")
-  ) {
+  if (!MICROSOFT_SSO_ENABLED && (authStatus === "needs_login" || authStatus === "loading")) {
     return (
       <MagicLinkLoginPage
         isLoading={authStatus === "loading"}
@@ -289,6 +359,8 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
         sessionToken={sessionToken}
         qualityLevel={qualityLevel}
         accountEmail={sessionUser.email}
+        appSessionId={appSessionId}
+        renewAppSession={renewAppSession}
       />
     );
   }
@@ -341,30 +413,6 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
     <div className={styles.root}>
       <StatusBar logs={logs} />
       <div className={styles.mainView}>
-        <div className={styles.content}>
-          {isLoading ? (
-            <div className={styles.loading}>
-              <Spinner />
-              <p>Processando...</p>
-            </div>
-          ) : (
-            <DiffViewer
-              originalText={originalText}
-              suggestedText={suggestedText}
-              onAcceptSingle={handleAcceptSingle}
-              onRejectSingle={handleRejectSingle}
-            />
-          )}
-          {showRating ? (
-            <Rating onRate={handleRate} />
-          ) : (
-            <ActionButtonGroup
-              isSuggestionAvailable={isSuggestionAvailable}
-              onAccept={handleAcceptAll}
-              onReject={handleRejectAll}
-            />
-          )}
-        </div>
         <CommandConsole
           command={command}
           onCommandChange={setCommand}
@@ -375,14 +423,72 @@ const App: React.FC<AppProps> = ({ dispatchToast, toastId }) => {
           onShowHistory={() => setView("history")}
           onShowLastUpdates={() => setView("lastUpdates")}
           onShowLegalAnalysis={LEGAL_ANALYSIS_ENABLED ? () => setView("legalAnalysis") : undefined}
-          onShowDocumentDesign={DOCUMENT_DESIGN_ENABLED ? () => setView("documentDesign") : undefined}
+          onShowDocumentDesign={
+            DOCUMENT_DESIGN_ENABLED ? () => setView("documentDesign") : undefined
+          }
           onSyncMemory={async () => {
             addLog("Sincronizando memória...", "info");
             await documentObserver.syncDocument();
             track("memory_sync_completed", undefined, sessionToken);
             addLog("Memória sincronizada.", "success");
           }}
+          onSelectAll={selectAllDocument}
+          selectedParagraphCount={originalText.length}
+          hasLastResult={isLoading || isSuggestionAvailable || showRating}
+          onOpenLastResult={() => setIsResultModalOpen(true)}
         />
+        <Dialog
+          open={isResultModalOpen}
+          onOpenChange={(_, data) => {
+            if (!data.open && !isLoading) {
+              closeResult();
+            }
+          }}
+        >
+          <DialogSurface className={styles.dialogSurface}>
+            <DialogBody className={styles.dialogBody}>
+              <DialogTitle
+                action={
+                  <Button
+                    appearance="subtle"
+                    icon={<Dismiss24Regular />}
+                    onClick={closeResult}
+                    disabled={isLoading}
+                    aria-label="Fechar resultado"
+                  />
+                }
+              >
+                Resultado
+              </DialogTitle>
+              <DialogContent className={styles.dialogContent}>
+                {isLoading ? (
+                  <div className={styles.resultLoading}>
+                    <Spinner />
+                    <p>Processando...</p>
+                  </div>
+                ) : (
+                  <>
+                    <DiffViewer
+                      originalText={originalText}
+                      suggestedText={suggestedText}
+                      onAcceptSingle={handleAcceptSingle}
+                      onRejectSingle={handleRejectSingle}
+                    />
+                    {showRating ? (
+                      <Rating onRate={handleRate} />
+                    ) : (
+                      <ActionButtonGroup
+                        isSuggestionAvailable={isSuggestionAvailable}
+                        onAccept={handleAcceptAll}
+                        onReject={handleRejectAll}
+                      />
+                    )}
+                  </>
+                )}
+              </DialogContent>
+            </DialogBody>
+          </DialogSurface>
+        </Dialog>
       </div>
     </div>
   );

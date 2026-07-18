@@ -33,7 +33,9 @@ const fetchBackend = async (url: string, init: RequestInit): Promise<Response> =
   try {
     return await fetch(url, init);
   } catch {
-    throw new WingBillingError("O servidor do Wing está indisponível. Tente novamente em instantes.");
+    throw new WingBillingError(
+      "O servidor do Wing está indisponível. Tente novamente em instantes."
+    );
   }
 };
 

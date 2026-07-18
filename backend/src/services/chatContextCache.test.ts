@@ -1,6 +1,6 @@
 import { assert, assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { compactHistory } from "./chatContextCache.ts";
-import type { ChatHistoryEntry } from "../routes/chat.routes.ts";
+import type { ChatHistoryEntry } from "../contexts/cache/domain/ChatHistoryCompactor.ts";
 
 const entry = (role: "user" | "model", text: string): ChatHistoryEntry => ({
   role,

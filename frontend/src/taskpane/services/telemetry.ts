@@ -20,12 +20,17 @@ export type ClientTelemetryEventName =
   | "suggestion_rejected_single"
   | "suggestion_rated"
   | "suggestion_failed"
-  | "memory_sync_completed";
+  | "memory_sync_completed"
+  | "action_latency";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// M5: valor de propriedade pode ser um objeto de fases (ttfb_ms,
+// streaming_ms etc.), não só string/number — ver TelemetryPropertyValue no
+// catálogo do backend (telemetryCatalog.ts), que valida esse formato.
+export type ClientTelemetryPropertyValue = string | number | Record<string, number>;
+
 export const track = (
   eventName: ClientTelemetryEventName,
-  properties?: Record<string, string | number>,
+  properties?: Record<string, ClientTelemetryPropertyValue>,
   sessionToken?: string | null
 ) => {
   console.log(`[TELEMETRY] Event: ${eventName}`, properties || "");

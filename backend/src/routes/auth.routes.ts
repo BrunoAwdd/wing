@@ -8,6 +8,7 @@ import {
 import { wingSessionService } from "../services/wingSessionService.ts";
 import { track } from "../services/telemetry.ts";
 import type { TelemetryEventName } from "../services/telemetryCatalog.ts";
+import { MicrosoftAuthUseCases } from "../contexts/identity/application/use-cases/MicrosoftAuthUseCases.ts";
 
 export interface SessionRouteDependencies {
   validateMicrosoftToken: (token: string) => Promise<MicrosoftIdentity>;
@@ -39,6 +40,13 @@ export const createAuthRouter = (
 ) => {
   const router = new Router();
 
+  const useCases = new MicrosoftAuthUseCases(
+    { validate: dependencies.validateMicrosoftToken },
+    { issueSession: dependencies.issueSession },
+    { getOrCreateFromMicrosoft: dependencies.getOrCreateAccount, getPlan: dependencies.getPlan },
+    { trackEvent: dependencies.trackEvent },
+  );
+
   router.post("/session", async (ctx) => {
     let microsoftAccessToken: unknown;
     try {
@@ -59,27 +67,9 @@ export const createAuthRouter = (
     }
 
     try {
-      const identity = await dependencies.validateMicrosoftToken(
-        microsoftAccessToken,
-      );
-      const account = await dependencies.getOrCreateAccount(identity);
-      const plan = await dependencies.getPlan(account.id);
-      const session = await dependencies.issueSession({
-        accountId: account.id,
-        microsoftObjectId: identity.objectId,
-        tenantId: identity.tenantId,
-      });
-
-      dependencies.trackEvent("office_sso_success", undefined, account.id);
+      const response = await useCases.authenticateWithMicrosoft(microsoftAccessToken);
       ctx.response.status = 201;
-      ctx.response.body = {
-        ...session,
-        user: {
-          email: account.email,
-          displayName: account.display_name || identity.displayName || null,
-          plan,
-        },
-      };
+      ctx.response.body = response;
     } catch (error) {
       if (error instanceof MicrosoftTokenValidationError) {
         dependencies.trackEvent("office_sso_failed", {
@@ -95,10 +85,6 @@ export const createAuthRouter = (
       ctx.response.body = { error: "Não foi possível iniciar a sessão Wing." };
     }
   });
-
-  // Logout (DELETE /session) mudou para magicLinkAuth.routes.ts — é
-  // agnóstico de proveniência e precisa continuar acessível mesmo com o SSO
-  // Microsoft desligado.
 
   return router;
 };

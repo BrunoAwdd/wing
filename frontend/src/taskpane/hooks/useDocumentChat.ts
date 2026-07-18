@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearConversation as clearCachedConversation, loadConversation, saveConversation } from "../services/chatCache";
+import {
+  clearConversation as clearCachedConversation,
+  loadConversation,
+  saveConversation,
+} from "../services/chatCache";
+import { track } from "../services/telemetry";
 
 /* global Word, Office, process */
 
@@ -18,6 +23,11 @@ interface UseDocumentChatProps {
   // compartilhada, outra conta que abrisse o mesmo documento restauraria a
   // conversa da conta anterior.
   accountEmail: string;
+  // M4.6: identifica esta instância aberta do Word — obrigatório em
+  // /chat/start e /chat/message, senão o backend não sabe vincular a
+  // sessão de chat a uma instância específica.
+  appSessionId: string | null;
+  renewAppSession: () => void;
 }
 
 // Função auxiliar para ler o documento inteiro como texto puro
@@ -48,12 +58,15 @@ export const useDocumentChat = ({
   sessionToken,
   qualityLevel,
   accountEmail,
+  appSessionId,
+  renewAppSession,
 }: UseDocumentChatProps) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const docIdRef = useRef<string | null>(null);
+  const appSessionIdRef = useRef<string | null>(appSessionId);
   // Marca a conta dona do conteúdo atual de `messages` — atualizado sempre
   // que `messages` é setado por algo que sabemos ser dessa conta. O efeito
   // de persistência só salva se isso bater com `accountEmail` atual, senão
@@ -109,8 +122,24 @@ export const useDocumentChat = ({
     void saveConversation(accountEmail, docIdRef.current, messages);
   }, [messages, accountEmail]);
 
+  // M4.7: appSessionId pode mudar por trás das cortinas — useAppSession.ts
+  // registra uma app session nova, de forma transparente, quando o teto
+  // absoluto de 1h é atingido (heartbeats param de renovar a partir daí).
+  // Sem isto, `sessionId` continuava apontando pra uma sessão de chat
+  // vinculada à app session antiga: a próxima mensagem batia em
+  // `app_session_expired` no backend (a app session dona daquele chat já
+  // não existe mais) e o usuário via "feche e reabra o painel" mesmo com a
+  // renovação já tendo acontecido nos bastidores. Invalida só o VÍNCULO de
+  // sessão — a conversa visível (`messages`) não é tocada — e
+  // `ensureSession()` relinca silenciosamente com a app session atual na
+  // próxima mensagem, igual ao fluxo de restaurar do cache local.
+  useEffect(() => {
+    appSessionIdRef.current = appSessionId;
+    setSessionId(null);
+  }, [appSessionId]);
+
   const startAnalysis = useCallback(async () => {
-    if (!isOnline || !sessionToken) {
+    if (!isOnline || !sessionToken || !appSessionId) {
       setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
       return;
     }
@@ -131,6 +160,7 @@ export const useDocumentChat = ({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${sessionToken}`,
+          "X-Wing-App-Session": appSessionId,
         },
         body: JSON.stringify({ documentText }),
       });
@@ -155,7 +185,7 @@ export const useDocumentChat = ({
     } finally {
       setIsLoading(false);
     }
-  }, [isOnline, sessionToken, accountEmail]);
+  }, [isOnline, sessionToken, accountEmail, appSessionId]);
 
   // Reconecta silenciosamente com uma sessão nova quando existe uma
   // conversa restaurada do cache mas nenhuma sessão de backend viva ainda
@@ -165,44 +195,58 @@ export const useDocumentChat = ({
   // o contexto completamente. O backend compacta pro mesmo limite de janela
   // usado durante a conversa, então isso nunca vira "reenviar histórico
   // ilimitado" (gate de saída do M4.5).
-  const ensureSession = useCallback(async (): Promise<string | null> => {
-    if (sessionId) return sessionId;
-    if (!isOnline || !sessionToken) {
-      setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
-      return null;
-    }
+  const ensureSession = useCallback(
+    async (
+      targetAppSessionId: string | null = appSessionId,
+      forceNew = false
+    ): Promise<string | null> => {
+      if (sessionId && !forceNew) return sessionId;
+      if (!isOnline || !sessionToken || !targetAppSessionId) {
+        setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
+        return null;
+      }
 
-    const documentText = await getDocumentAsText();
-    if (!documentText.trim()) {
-      throw new Error("O documento está vazio.");
-    }
+      const documentText = await getDocumentAsText();
+      if (!documentText.trim()) {
+        throw new Error("O documento está vazio.");
+      }
 
-    const priorMessages = messages.slice(-MAX_PRIOR_MESSAGES_SENT).map((m) => ({
-      role: m.author,
-      parts: [{ text: m.content }],
-    }));
+      const priorMessages = messages.slice(-MAX_PRIOR_MESSAGES_SENT).map((m) => ({
+        role: m.author,
+        parts: [{ text: m.content }],
+      }));
 
-    const response = await fetch(`${BACKEND_URL}/api/v1/chat/start`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionToken}`,
-      },
-      body: JSON.stringify({ documentText, priorMessages }),
-    });
+      const response = await fetch(`${BACKEND_URL}/api/v1/chat/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+          "X-Wing-App-Session": targetAppSessionId,
+        },
+        body: JSON.stringify({ documentText, priorMessages }),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "Falha ao retomar a sessão de chat.");
-    }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Falha ao retomar a sessão de chat.");
+      }
 
-    const { sessionId: newSessionId } = await response.json();
-    setSessionId(newSessionId);
-    return newSessionId;
-  }, [sessionId, isOnline, sessionToken, messages]);
+      const { sessionId: newSessionId } = await response.json();
+      setSessionId(newSessionId);
+      return newSessionId;
+    },
+    [sessionId, isOnline, sessionToken, messages, appSessionId]
+  );
 
   const sendMessage = useCallback(
     async (message: string) => {
+      // M5: latência ponta a ponta medida no cliente, do clique até o fim
+      // do stream — inclui qualquer renovação transparente de app session
+      // no meio do caminho (o usuário estava esperando o tempo todo, então
+      // isso faz parte de ttfb_ms de verdade, não é um "extra" escondido).
+      const requestStartedAt = performance.now();
+      let firstByteAt: number | null = null;
+
       let activeSessionId: string | null;
       try {
         activeSessionId = await ensureSession();
@@ -222,19 +266,59 @@ export const useDocumentChat = ({
       setIsLoading(true);
       setError(null);
 
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/v1/chat/message`, {
+      const requestMessage = (targetSessionId: string, targetAppSessionId: string | null) =>
+        fetch(`${BACKEND_URL}/api/v1/chat/message`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${sessionToken}`,
+            "X-Wing-App-Session": targetAppSessionId || "",
           },
-          body: JSON.stringify({ sessionId: activeSessionId, message, qualityLevel }),
+          body: JSON.stringify({ sessionId: targetSessionId, message, qualityLevel }),
         });
+
+      try {
+        const attemptedAppSessionId = appSessionId;
+        let response = await requestMessage(activeSessionId, attemptedAppSessionId);
 
         if (!response.ok || !response.body) {
           const errorData = await response.json();
-          throw new Error(errorData.error || "Falha ao enviar a mensagem.");
+          // M4.6/M4.7: a app session pode ter expirado no meio da conversa
+          // (Word fechado, heartbeat parou, ou uma renovação transparente
+          // aconteceu exatamente enquanto esta mensagem estava em voo) —
+          // distinto de um erro genérico. useAppSession.ts já deve ter
+          // registrado (ou estar registrando) uma app session nova por
+          // conta própria; só invalida o vínculo de sessão aqui pra
+          // `ensureSession()` relincar na próxima tentativa, sem pedir pro
+          // usuário fechar/reabrir o painel manualmente.
+          if (errorData.code === "app_session_expired") {
+            setSessionId(null);
+            renewAppSession();
+            const deadline = Date.now() + 15_000;
+            while (
+              (!appSessionIdRef.current || appSessionIdRef.current === attemptedAppSessionId) &&
+              Date.now() < deadline
+            ) {
+              await new Promise((resolve) => window.setTimeout(resolve, 200));
+            }
+            const renewedAppSessionId = appSessionIdRef.current;
+            if (!renewedAppSessionId || renewedAppSessionId === attemptedAppSessionId) {
+              throw new Error("Não foi possível renovar a sessão automaticamente.");
+            }
+            const renewedChatSessionId = await ensureSession(renewedAppSessionId, true);
+            if (!renewedChatSessionId) {
+              throw new Error("Não foi possível retomar a conversa.");
+            }
+            response = await requestMessage(renewedChatSessionId, renewedAppSessionId);
+            if (!response.ok || !response.body) {
+              const retryError = await response.json();
+              throw new Error(
+                retryError.error || "Falha ao enviar a mensagem após renovar a sessão."
+              );
+            }
+          } else {
+            throw new Error(errorData.error || "Falha ao enviar a mensagem.");
+          }
         }
 
         const reader = response.body.getReader();
@@ -243,6 +327,7 @@ export const useDocumentChat = ({
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
+          if (firstByteAt === null) firstByteAt = performance.now();
 
           const chunk = decoder.decode(value, { stream: true });
           setMessages((prev) => {
@@ -251,6 +336,21 @@ export const useDocumentChat = ({
             return [...prev.slice(0, -1), lastMessage];
           });
         }
+
+        const completedAt = performance.now();
+        const ttfbAt = firstByteAt ?? completedAt;
+        track(
+          "action_latency",
+          {
+            command: "chat",
+            duration_ms: Math.round(completedAt - requestStartedAt),
+            phases: {
+              ttfb_ms: Math.round(ttfbAt - requestStartedAt),
+              streaming_ms: Math.round(completedAt - ttfbAt),
+            },
+          },
+          sessionToken
+        );
       } catch (e: any) {
         // O backend também restaura o snapshot anterior em falhas de stream.
         // Remove a pergunta e a resposta otimistas para manter as duas visões
@@ -262,11 +362,12 @@ export const useDocumentChat = ({
         setIsLoading(false);
       }
     },
-    [ensureSession, sessionToken, qualityLevel, accountEmail]
+    [ensureSession, sessionToken, qualityLevel, accountEmail, appSessionId, renewAppSession]
   );
 
   const clearConversation = useCallback(() => {
-    if (docIdRef.current && accountEmail) void clearCachedConversation(accountEmail, docIdRef.current);
+    if (docIdRef.current && accountEmail)
+      void clearCachedConversation(accountEmail, docIdRef.current);
     setMessages([]);
     setSessionId(null);
     setError(null);

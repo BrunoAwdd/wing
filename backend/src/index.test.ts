@@ -5,6 +5,40 @@ import {
   wingSessionService,
 } from "./services/wingSessionService.ts";
 
+Deno.test("CORS: preflight autoriza o host local atual do add-in", async () => {
+  const response = await app.handle(
+    new Request("http://localhost/api/v1/chat/start", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://localhost:5173",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,x-wing-app-session",
+      },
+    }),
+  );
+
+  assertEquals(response?.status, 200);
+  assertEquals(
+    response?.headers.get("Access-Control-Allow-Origin"),
+    "https://localhost:5173",
+  );
+  assertEquals(response?.headers.get("Vary")?.includes("Origin"), true);
+});
+
+Deno.test("CORS: origem desconhecida não recebe autorização", async () => {
+  const response = await app.handle(
+    new Request("http://localhost/api/v1/chat/start", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://attacker.example",
+        "Access-Control-Request-Method": "POST",
+      },
+    }),
+  );
+
+  assertEquals(response?.headers.has("Access-Control-Allow-Origin"), false);
+});
+
 // RFC 013 §7 (critério de aceite): "testes impedem ativação acidental" das
 // features incubadas (Visual Law / Análise Jurídica).
 //

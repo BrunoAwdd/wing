@@ -205,30 +205,6 @@ const getDocumentLines = (documentText: string): string[] =>
     .map((line) => line.trim())
     .filter(Boolean);
 
-const countWords = (value: string): number =>
-  value.split(/\s+/).filter(Boolean).length;
-
-const looksLikeSectionLine = (line: string): boolean => {
-  const wordCount = countWords(line);
-  if (wordCount === 0 || wordCount > 16 || line.length > 140) return false;
-  if (/[;!?]$/.test(line)) return false;
-  if (line.includes("\n")) return false;
-
-  const hasDataColon = /:\s*\S/.test(line) && /(?:\d|r\$|%)/i.test(line);
-  if (hasDataColon) return false;
-
-  const legalMarker = /^(contrato|instrumento|cl[aá]usula|cap[ií]tulo|se[cç][aã]o|art\.?|artigo|anexo|ap[eê]ndice|considerando|quadro|termo)\b/i.test(line);
-  const deMarker = /^(do|da|dos|das)\s+\S+/i.test(line);
-  const commonHeading = /^(objeto|partes|prazo|vig[eê]ncia|pre[cç]o|valor|pagamento|obriga[cç][oõ]es|responsabilidades|rescis[aã]o|confidencialidade|foro|garantias|penalidades|defini[cç][oõ]es|assinaturas|escopo|entrega|cronograma|documentos)\b/i.test(line);
-  const numberedMarker =
-    /^(?:\d+(?:\.\d+)*|[ivxlcdm]+)(?:[\).\-\s]+)\S/i.test(line) &&
-    wordCount <= 12 &&
-    !/[.,;:]$/.test(line);
-  const contractHeading = (deMarker || commonHeading) && wordCount <= 8 && !/[.,;:]$/.test(line);
-
-  return legalMarker || numberedMarker || contractHeading;
-};
-
 const clampSectionLevel = (level: number): 1 | 2 | 3 => {
   if (level <= 1) return 1;
   if (level === 2) return 2;
@@ -236,7 +212,6 @@ const clampSectionLevel = (level: number): 1 | 2 | 3 => {
 };
 
 const filterSections = (
-  sections: DocumentSection[],
   documentText: string,
   paragraphs: DocumentParagraph[] = []
 ): DocumentSection[] => {
@@ -245,11 +220,6 @@ const filterSections = (
   for (const line of lines) {
     lineByNormalizedText.set(normalizeText(line), line);
   }
-
-  const paragraphByIndex = new Map(paragraphs.map((paragraph) => [paragraph.index, paragraph]));
-  const paragraphByText = new Map(
-    paragraphs.map((paragraph) => [normalizeText(paragraph.text), paragraph])
-  );
 
   const wordStyledSections = paragraphs
     .flatMap((paragraph): DocumentSection[] => {
@@ -304,7 +274,7 @@ export const documentDesignService = {
     const analysis = JSON.parse(rawJson) as DocumentDesignAnalysis;
     return {
       ...analysis,
-      sections: filterSections(analysis.sections || [], documentText, paragraphs),
+      sections: filterSections(documentText, paragraphs),
       tableCandidates: attachParagraphIndexByAnchor(
         analysis.tableCandidates || [],
         paragraphs

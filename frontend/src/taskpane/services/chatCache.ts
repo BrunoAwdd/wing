@@ -24,7 +24,9 @@ interface CachedConversation {
 // legível em texto plano no localStorage (inspecionável via devtools).
 const hashHex = async (text: string): Promise<string> => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest)).map((b) => ("0" + b.toString(16)).slice(-2)).join("");
+  return Array.from(new Uint8Array(digest))
+    .map((b) => ("0" + b.toString(16)).slice(-2))
+    .join("");
 };
 
 const cacheKey = async (accountEmail: string, docId: string): Promise<string> =>

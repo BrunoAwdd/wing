@@ -1,7 +1,9 @@
 import { Router } from "../deps.ts";
 import { supabase } from "../services/supabaseClient.ts";
 import { type Account, billingService } from "../services/billingService.ts";
+import { type StripeSubscription } from "../services/stripeService.ts";
 import {
+  type BillingPeriod,
   type StripeEvent,
   stripeService,
   StripeSignatureError,
@@ -27,9 +29,11 @@ const MAX_ACTION_INPUT_CHARS = Number(
   Deno.env.get("WING_ACTION_MAX_INPUT_CHARS") || "120000",
 );
 
-const FREE_MONTHLY_CREDIT_LIMIT = Number(
-  Deno.env.get("WING_FREE_MONTHLY_CREDITS") || "1000",
-);
+const CREDIT_LIMITS: Partial<Record<string, number>> = {
+  free: Number(Deno.env.get("WING_TRIAL_CREDIT_LIMIT") || "500"),
+  basic: Number(Deno.env.get("WING_BASIC_MONTHLY_CREDITS") || "3500"),
+  pro: Number(Deno.env.get("WING_PRO_MONTHLY_CREDITS") || "8000"),
+};
 
 export interface BillingRouteDependencies {
   getAccount: (accountId: string) => Promise<Account>;
@@ -137,9 +141,7 @@ export const createBillingRouter = (
       status: entitlement.status,
       usage: {
         ...usage,
-        creditLimit: entitlement.plan === "free"
-          ? FREE_MONTHLY_CREDIT_LIMIT
-          : null,
+        creditLimit: CREDIT_LIMITS[entitlement.plan] ?? null,
       },
     };
   });
@@ -148,7 +150,8 @@ export const createBillingRouter = (
   // operações Profundo". Só devolve um número — nunca o modelo real por
   // trás do nível, que fica só no backend.
   router.post("/estimate", requireWingSession, async (ctx) => {
-    let body: { paragraphs?: unknown; qualityLevel?: unknown; tone?: unknown } = {};
+    let body: { paragraphs?: unknown; qualityLevel?: unknown; tone?: unknown } =
+      {};
     try {
       body = await ctx.request.body.json();
     } catch {
@@ -177,13 +180,18 @@ export const createBillingRouter = (
     if (totalChars > MAX_ACTION_INPUT_CHARS) {
       ctx.response.status = 400;
       ctx.response.body = {
-        error: `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
+        error:
+          `O texto excede o limite de ${MAX_ACTION_INPUT_CHARS} caracteres.`,
       };
       return;
     }
 
     const tone = typeof body.tone === "string" ? body.tone : undefined;
-    const charge = dependencies.estimateCharge(paragraphs, body.qualityLevel, tone);
+    const charge = dependencies.estimateCharge(
+      paragraphs,
+      body.qualityLevel,
+      tone,
+    );
 
     ctx.response.status = 200;
     ctx.response.body = { credits: charge.credits };
@@ -191,6 +199,26 @@ export const createBillingRouter = (
 
   router.post("/checkout", requireWingSession, async (ctx) => {
     const auth = getWingAuth(ctx);
+    let plan: unknown;
+    let billingPeriod: unknown;
+    try {
+      ({ plan, billingPeriod } = await ctx.request.body.json());
+    } catch {
+      plan = undefined;
+      billingPeriod = undefined;
+    }
+    if (plan !== "basic" && plan !== "pro") {
+      ctx.response.status = 400;
+      ctx.response.body = { error: "plan deve ser 'basic' ou 'pro'." };
+      return;
+    }
+    if (billingPeriod !== "monthly" && billingPeriod !== "yearly") {
+      ctx.response.status = 400;
+      ctx.response.body = {
+        error: "billingPeriod deve ser 'monthly' ou 'yearly'.",
+      };
+      return;
+    }
     try {
       const account = await dependencies.getAccount(auth.accountId);
       const customerId = await dependencies.getOrCreateStripeCustomer(account);
@@ -198,13 +226,23 @@ export const createBillingRouter = (
         accountId: auth.accountId,
         email: account.email,
         customerId,
+        plan,
+        billingPeriod: billingPeriod as BillingPeriod,
       });
-      dependencies.trackEvent("checkout_started", undefined, auth.accountId);
+      dependencies.trackEvent(
+        "checkout_started",
+        { plan, billing_period: billingPeriod },
+        auth.accountId,
+      );
       ctx.response.status = 200;
       ctx.response.body = { url };
     } catch (error) {
       console.error("[Billing] Falha ao criar checkout:", error);
-      dependencies.trackEvent("checkout_failed", undefined, auth.accountId);
+      dependencies.trackEvent(
+        "checkout_failed",
+        { plan, billing_period: billingPeriod },
+        auth.accountId,
+      );
       ctx.response.status = 500;
       ctx.response.body = { error: "Não foi possível iniciar o checkout." };
     }
@@ -258,7 +296,6 @@ export const createBillingRouter = (
     const isNew = await dependencies.recordWebhookEventIfNew({
       id: event.id,
       type: event.type,
-      payload: event,
     });
 
     if (!isNew) {
@@ -270,15 +307,11 @@ export const createBillingRouter = (
 
     try {
       if (SUBSCRIPTION_EVENTS.has(event.type)) {
-        const subscription = event.data.object as {
-          id: string;
-          metadata?: { account_id?: string };
-        };
+        const subscription = event.data.object as StripeSubscription;
         const accountId = subscription.metadata?.account_id;
         if (accountId) {
-          // deno-lint-ignore no-explicit-any
           await dependencies.syncSubscriptionFromStripe(
-            subscription as any,
+            subscription,
             accountId,
           );
           // Sinal de conversão real: só "created" marca uma assinatura NOVA.

@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "../deps.ts";
-import { AIProvider } from "./providerInterface.ts";
+import { AIProvider, CacheUsage, ChatHistoryEntry } from "./providerInterface.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const GEMINI_MODEL = Deno.env.get("GEMINI_MODEL") || "gemini-flash-3.5";
@@ -57,7 +57,7 @@ class GeminiProvider implements AIProvider {
 
   async *generateChatStream(
     prompt: string,
-    history: any[],
+    history: ChatHistoryEntry[],
     options?: {
       model?: string;
       temperature?: number;
@@ -66,7 +66,7 @@ class GeminiProvider implements AIProvider {
       maxOutputTokens?: number;
       cachedContentName?: string;
     },
-  ): AsyncGenerator<string, number, unknown> {
+  ): AsyncGenerator<string, CacheUsage, unknown> {
     const modelName = options?.model || GEMINI_MODEL;
     const model = this.genAI.getGenerativeModel({
       model: modelName,
@@ -91,20 +91,27 @@ class GeminiProvider implements AIProvider {
     }
 
     // Prova real de economia (tokens do prefixo que vieram do cache, não
-    // reprocessados) — só disponível depois que o stream inteiro é
-    // consumido. Propagado via `return` (número real, não boolean) pro
-    // chamador registrar telemetria com a economia de verdade.
-    if (!options?.cachedContentName) return 0;
+    // reprocessados) e do total lógico de entrada — só disponíveis depois
+    // que o stream inteiro é consumido. Propagado via `return` pro chamador
+    // registrar telemetria e cobrança com a economia de verdade. Gemini não
+    // tem um custo de "escrita" de cache por token nesta chamada (o cache é
+    // criado à parte, via GoogleAICacheManager, com tarifa por tempo de
+    // armazenamento, não por token) — sempre 0 aqui.
     try {
       const finalResponse = await result.response;
-      const cachedTokens = finalResponse.usageMetadata?.cachedContentTokenCount ?? 0;
-      console.log(
-        `[GeminiProvider] cache "${options.cachedContentName}": ${cachedTokens} tokens do prefixo vieram do cache.`,
-      );
-      return cachedTokens;
+      const cachedInputTokens = options?.cachedContentName
+        ? finalResponse.usageMetadata?.cachedContentTokenCount ?? 0
+        : 0;
+      const totalInputTokens = finalResponse.usageMetadata?.promptTokenCount;
+      if (options?.cachedContentName) {
+        console.log(
+          `[GeminiProvider] cache "${options.cachedContentName}": ${cachedInputTokens} tokens do prefixo vieram do cache.`,
+        );
+      }
+      return { cachedInputTokens, cacheWriteTokens: 0, totalInputTokens };
     } catch (error) {
       console.error("[GeminiProvider] Falha ao ler usageMetadata do cache:", error);
-      return 0;
+      return { cachedInputTokens: 0, cacheWriteTokens: 0 };
     }
   }
 
@@ -126,6 +133,7 @@ class GeminiProvider implements AIProvider {
         temperature: options?.temperature ?? 0,
         maxOutputTokens: options?.maxOutputTokens,
         responseMimeType: "application/json",
+        // deno-lint-ignore no-explicit-any
         responseSchema: schema as any,
       },
       systemInstruction: options?.systemInstruction,

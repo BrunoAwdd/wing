@@ -13,6 +13,7 @@
     "outDir": "dist",
     "removeComments": false,
     "sourceMap": true,
+    "skipLibCheck": true,
     "target": "es5",
     "lib": [
       "es7",

@@ -81,7 +81,7 @@ Deno.test("Billing /status: retorna plano, status e uso", async () => {
       requestsCount: 7,
       tokensUsed: 12_500,
       creditsUsed: 73,
-      creditLimit: null,
+      creditLimit: 8_000,
     },
   });
 });
@@ -95,16 +95,72 @@ Deno.test("Billing /checkout: exige sessão Wing (401 sem token)", async () => {
 
 Deno.test("Billing /checkout: retorna URL de checkout com sessão válida", async () => {
   const token = await withSession();
-  const response = await createTestApp().handle(
+  let checkoutOffer: { plan: string; billingPeriod: string } | undefined;
+  const app = createTestApp({
+    createCheckoutSession: async ({ plan, billingPeriod }) => {
+      checkoutOffer = { plan, billingPeriod };
+      return "https://checkout.stripe.com/session/xyz";
+    },
+  });
+  const response = await app.handle(
     new Request("http://localhost/api/v1/billing/checkout", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan: "pro", billingPeriod: "monthly" }),
     }),
   );
 
   assertEquals(response?.status, 200);
   const body = await response!.json();
   assertEquals(body.url, "https://checkout.stripe.com/session/xyz");
+  assertEquals(checkoutOffer, { plan: "pro", billingPeriod: "monthly" });
+});
+
+Deno.test("Billing /checkout: encaminha oferta anual sem receber price ID do cliente", async () => {
+  const token = await withSession();
+  let checkoutOffer: { plan: string; billingPeriod: string } | undefined;
+  const app = createTestApp({
+    createCheckoutSession: async ({ plan, billingPeriod }) => {
+      checkoutOffer = { plan, billingPeriod };
+      return "https://checkout.stripe.com/session/yearly";
+    },
+  });
+  const response = await app.handle(
+    new Request("http://localhost/api/v1/billing/checkout", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        plan: "basic",
+        billingPeriod: "yearly",
+        priceId: "price_injetado_pelo_cliente",
+      }),
+    }),
+  );
+
+  assertEquals(response?.status, 200);
+  assertEquals(checkoutOffer, { plan: "basic", billingPeriod: "yearly" });
+});
+
+Deno.test("Billing /checkout: rejeita plano ou ciclo ausente/inválido", async () => {
+  const token = await withSession();
+  const response = await createTestApp().handle(
+    new Request("http://localhost/api/v1/billing/checkout", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan: "enterprise", billingPeriod: "monthly" }),
+    }),
+  );
+
+  assertEquals(response?.status, 400);
 });
 
 Deno.test("Billing /checkout: falha da Stripe retorna 500 controlado", async () => {
@@ -117,7 +173,11 @@ Deno.test("Billing /checkout: falha da Stripe retorna 500 controlado", async () 
   const response = await app.handle(
     new Request("http://localhost/api/v1/billing/checkout", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan: "pro", billingPeriod: "yearly" }),
     }),
   );
 
@@ -348,7 +408,8 @@ Deno.test("Billing /estimate: exige sessão Wing", async () => {
 });
 
 Deno.test("Billing /estimate: retorna a estimativa calculada sobre os mesmos parágrafos/nível da execução real", async () => {
-  const token = (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
+  const token =
+    (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
   let receivedParagraphs: unknown;
   let receivedLevel: unknown;
   let receivedTone: unknown;
@@ -384,7 +445,8 @@ Deno.test("Billing /estimate: retorna a estimativa calculada sobre os mesmos par
 });
 
 Deno.test("Billing /estimate: parágrafos vazios ou ausentes retornam 400 (mesmo contrato da execução real)", async () => {
-  const token = (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
+  const token =
+    (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
   const app = createTestApp();
 
   const missing = await app.handle(
@@ -406,14 +468,18 @@ Deno.test("Billing /estimate: parágrafos vazios ou ausentes retornam 400 (mesmo
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ paragraphs: [{ id: "1", text: "" }], qualityLevel: "rapido" }),
+      body: JSON.stringify({
+        paragraphs: [{ id: "1", text: "" }],
+        qualityLevel: "rapido",
+      }),
     }),
   );
   assertEquals(empty?.status, 400);
 });
 
 Deno.test("Billing /estimate: texto acima do limite compartilhado retorna 400", async () => {
-  const token = (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
+  const token =
+    (await wingSessionService.issue({ accountId: ACCOUNT_ID })).token;
   const response = await createTestApp().handle(
     new Request("http://localhost/api/v1/billing/estimate", {
       method: "POST",

@@ -94,6 +94,8 @@ interface DocumentAnalysisPageProps {
   sessionToken: string | null;
   qualityLevel: string;
   accountEmail: string;
+  appSessionId: string | null;
+  renewAppSession: () => void;
 }
 
 const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
@@ -103,10 +105,19 @@ const DocumentAnalysisPage: React.FC<DocumentAnalysisPageProps> = ({
   sessionToken,
   qualityLevel,
   accountEmail,
+  appSessionId,
+  renewAppSession,
 }) => {
   const styles = useStyles();
   const { messages, isLoading, error, startAnalysis, sendMessage, clearConversation, hasConversation } =
-    useDocumentChat({ isOnline, sessionToken, qualityLevel, accountEmail });
+    useDocumentChat({
+      isOnline,
+      sessionToken,
+      qualityLevel,
+      accountEmail,
+      appSessionId,
+      renewAppSession,
+    });
   const [currentMessage, setCurrentMessage] = useState("");
   const messageEndRef = useRef<null | HTMLDivElement>(null);
 

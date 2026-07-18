@@ -2,7 +2,7 @@
 
 **Status:** Ativo
 
-**Atualizado em:** 2026-07-13
+**Atualizado em:** 2026-07-14
 
 **Escopo:** transformar o núcleo comercial definido no RFC 014 em um produto vendável e operável.
 
@@ -16,19 +16,22 @@
 
 ## 2. Milestones
 
-| Ordem | Milestone | Estado | Dependência | Resultado comercial |
-|---|---|---|---|---|
-| M0 | Retirada do runtime aposentado | Concluído | - | Produto sem Agents, Maestro, Extensions ou MCP |
-| M1 | Identidade e sessão Wing | Em validação | M0 | Usuário autenticado de forma confiável |
-| M2 | Stripe, planos e cotas | Concluído | M1 | Wing pode cobrar e aplicar Free/Pro |
-| M3 | Chat com entitlement e histórico íntegro | Concluído | M1, M2 | Conversa segura e consistente |
-| M4 | Telemetria segura e confiável | Concluído | M1 | Métricas utilizáveis sem expor documentos |
-| M4.4 | Carteira mensal de créditos | Concluído | M2-M4 | Custo de IA controlado por conta e modelo |
-| M4.5 | Cache do Fale com o documento | Concluído | M3, M4.4 | Conversas contínuas com menor custo de contexto |
-| M4.6 | Sessão por instância do Word | Pendente | M1, M3, M4.5 | Documentos abertos isolados sem licença por assento |
-| M5 | Empacotamento e ambiente de produção | Pendente | M1-M4.6 | Add-in instalável fora do ambiente de dev |
-| M6 | Quality gate e piloto pago | Pendente | M1-M5 | Liberação controlada para clientes |
-| M7 | Enterprise | Futuro | M6 | Governança, múltiplas contas e controle de alterações |
+| Ordem | Milestone                                | Estado       | Dependência  | Resultado comercial                                   |
+| ----- | ---------------------------------------- | ------------ | ------------ | ----------------------------------------------------- |
+| M0    | Retirada do runtime aposentado           | Concluído    | -            | Produto sem Agents, Maestro, Extensions ou MCP        |
+| M1    | Identidade e sessão Wing                 | Em validação | M0           | Usuário autenticado de forma confiável                |
+| M2    | Stripe, planos e cotas                   | Concluído    | M1           | Wing pode cobrar e aplicar Free/Pro                   |
+| M3    | Chat com entitlement e histórico íntegro | Concluído    | M1, M2       | Conversa segura e consistente                         |
+| M4    | Telemetria segura e confiável            | Concluído    | M1           | Métricas utilizáveis sem expor documentos             |
+| M4.4  | Carteira mensal de créditos              | Concluído    | M2-M4        | Custo de IA controlado por conta e modelo             |
+| M4.5  | Cache do Fale com o documento            | Concluído    | M3, M4.4     | Conversas contínuas com menor custo de contexto       |
+| M4.6  | Sessão por instância do Word             | Concluído    | M1, M3, M4.5 | Documentos abertos isolados sem licença por assento   |
+| M4.7  | Ciclo e cobrança do cache                 | Concluído    | M4.4-M4.6    | Cache sustentável com economia visível ao cliente    |
+| M4.8  | DDD e arquitetura hexagonal               | Concluído    | M4.7         | Núcleo comercial testável e independente de vendors  |
+| M5    | Empacotamento e ambiente de produção     | Em andamento | M1-M4.8      | Add-in instalável fora do ambiente de dev             |
+| M5.1  | Site comercial e cadastro                | Pendente     | M1, M2, M5   | Visitante conhece o Wing e cria sua conta             |
+| M6    | Quality gate e piloto pago               | Pendente     | M1-M5.1      | Liberação controlada para clientes                    |
+| M7    | Enterprise                               | Futuro       | M6           | Governança, múltiplas contas e controle de alterações |
 
 ## M0 - Retirada do runtime aposentado
 
@@ -89,7 +92,7 @@ opt-in por depender da infraestrutura local.
 
 O smoke test completo no Stripe Test Mode será executado na preparação do
 ambiente que possuir `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` e
-`STRIPE_PRICE_PRO`. Essa validação operacional não reabre a implementação do
+quatro preços Stripe de Basic/Pro mensal/anual. Essa validação operacional não reabre a implementação do
 milestone.
 
 Gate de saída:
@@ -192,8 +195,9 @@ Entregáveis:
 
 O prefixo estável formado por instruções e documento deve ser separado das
 perguntas e respostas variáveis. O cache é isolado por conta, documento, modelo
-e versão do prompt. Metadados podem ser persistidos, mas nenhum registro do
-Wing deve armazenar o texto jurídico usado pelo cache remoto.
+e versão do prompt (desde o M4.6, também pela app session — ver abaixo).
+Metadados podem ser persistidos, mas nenhum registro do Wing deve armazenar o
+texto jurídico usado pelo cache remoto.
 
 Gate de saída: reabrir o painel restaura a conversa, uma nova sessão reconstrói
 o contexto sem reenviar histórico ilimitado e perguntas consecutivas sobre um
@@ -204,45 +208,216 @@ ou versão do prompt invalida o cache.
 
 Entregáveis:
 
-- [ ] criar `appSessionId` por instância aberta do Word, independente da sessão de login;
-- [ ] vincular cada app session ao documento aberto, ao chat e aos caches correspondentes;
-- [ ] implementar heartbeat, expiração e encerramento sem limitar dispositivos, pessoas ou sessões por conta;
-- [ ] remover `WING_CHAT_MAX_SESSIONS_PER_ACCOUNT` como regra comercial;
-- [ ] manter todas as app sessions debitando a mesma carteira da conta proprietária.
+- [x] criar `appSessionId` por instância aberta do Word, independente da sessão de login;
+- [x] vincular cada app session ao documento aberto, ao chat e aos caches correspondentes;
+- [x] implementar heartbeat, expiração e encerramento sem limitar dispositivos, pessoas ou sessões por conta;
+- [x] remover `WING_CHAT_MAX_SESSIONS_PER_ACCOUNT` como regra comercial;
+- [x] manter todas as app sessions debitando a mesma carteira da conta proprietária;
+- [x] Basta um único refresh token para manter todas as sessões vivas. (No mesmo computador)
 
 Três documentos abertos representam três app sessions. O mesmo documento
 aberto em dois computadores representa duas app sessions. A sessão Wing segue
 responsável somente por autenticação; a app session isola a instância do Word;
 a chat session representa a conversa; e a carteira permanece única por conta.
 
+Concluído em 2026-07-14. `appSessionId` é gerado pelo backend a cada
+`POST /api/v1/app-sessions`, nunca persistido no documento nem derivado de
+`wing_doc_id` (que identifica o arquivo, não a instância). O frontend registra
+a instância ao abrir o painel, envia heartbeat a cada 3 minutos e tenta
+encerrar a app session no fechamento (best-effort, já que o Office.js não
+garante executar JS no encerramento de todas as instâncias do Word) — quem de
+fato garante o fim de uma instância fechada é o TTL do servidor
+(`WING_APP_SESSION_TTL_MS`, 10 minutos por padrão) expirando por falta de
+heartbeat. `/chat/start` e `/chat/message` exigem o cabeçalho
+`X-Wing-App-Session` e revalidam a cada mensagem, não só na criação — assim
+fechar uma instância corta o chat correspondente bem antes do TTL de 30
+minutos do chat em si. O cache local do painel (`chatCache.ts`) segue
+isolado por conta e documento, não por instância, porque o próprio gate deste
+milestone trata "mesmo documento em duas máquinas" como duas app sessions
+válidas, não como um requisito de cache separado — isolar por instância
+quebraria a restauração de conversa do M4.5. Já o cache de prompt remoto do
+Gemini (`geminiContextCache.ts`, M4.5) passou a incluir `appSessionId` na
+chave: é estado de execução, não de restauração de conversa, então duas app
+sessions abertas no mesmo documento não reaproveitam mais o mesmo cache
+remoto entre si (cada uma paga o custo do próprio prefixo, sem vazar nada
+entre instâncias). `WING_CHAT_MAX_SESSIONS_PER_ACCOUNT` foi removido sem
+substituto: nenhuma rota limita mais a quantidade de sessões de chat
+simultâneas por conta, só o saldo de créditos (M4.4) limita o uso. A suíte
+encerrou com 122 testes aprovados (mais o teste de banco opt-in) e o build
+do add-in passou.
+
 Gate de saída: documentos abertos simultaneamente não compartilham estado de
 chat ou cache por engano, fechar o Word encerra ou deixa expirar apenas sua app
 session e qualquer quantidade de instâncias autorizadas continua limitada pelo
 saldo de créditos, não por assentos ou dispositivos.
 
+## M4.7 - Ciclo de vida e cobrança do cache
+
+Entregáveis:
+
+- [x] limitar cada app session a uma hora de duração absoluta, sem permitir que
+  heartbeats renovem esse prazo indefinidamente;
+- [x] renovar a app session automaticamente quando o Word permanecer aberto,
+  preservando a conversa local vinculada à conta e ao `wing_doc_id`, inclusive
+  com retry automático de uma mensagem em voo durante a renovação;
+- [x] encerrar ou invalidar os caches remotos associados à sessão expirada;
+- [x] registrar separadamente `input_tokens`, `cached_input_tokens` e
+  `cache_write_tokens` informados por GPT, Gemini e Claude;
+- [x] debitar créditos somente em transações de IA, sem cobrar por sessão aberta,
+  documento aberto ou tempo ocioso;
+- [x] cobrar escrita de cache como entrada normal e aplicar desconto apenas sobre
+  tokens que o provedor confirmar como cache hit;
+- [x] definir limite técnico de tamanho por documento/cache e telemetria de
+  créditos normais, cobrados e economizados;
+- [x] reconciliar a cobrança estimada com o consumo real retornado pelo provedor.
+
+Hipótese comercial inicial: cobrar 50% da tarifa de entrada sobre tokens
+efetivamente recuperados do cache, manter saída e escrita de cache na tarifa
+normal e oferecer gratuitamente o armazenamento necessário durante a app
+session de até uma hora. O percentual deve permanecer configurável até existir
+telemetria suficiente para validar custo e margem por provedor.
+
+Gate de saída: nenhuma app session ou cache remoto sobrevive indefinidamente;
+uma instância aberta por mais de uma hora é renovada sem perder a conversa; cache
+miss nunca recebe desconto; cache hit comprovado reduz os créditos cobrados; e a
+soma dos componentes de uso explica integralmente o débito da carteira.
+
+## M4.8 - DDD e arquitetura hexagonal
+
+Objetivo: reorganizar incrementalmente o backend comercial para que regras de
+negócio não dependam de Oak, Supabase, Stripe ou SDKs de IA. Este milestone não
+é uma reescrita geral e não deve alterar contratos HTTP nem comportamento
+observável do produto.
+
+Entregáveis:
+
+- [x] mapear os bounded contexts iniciais: Identidade e Entitlements, Carteira
+  e Billing, App Sessions, Chat e Cache;
+- [x] definir entidades, value objects, invariantes e eventos de domínio apenas
+  onde houver regra de negócio real, evitando modelos anêmicos e abstrações sem uso;
+- [x] extrair casos de uso para a camada de aplicação, com portas de entrada
+  explícitas e DTOs independentes do transporte HTTP;
+- [x] definir portas de saída para persistência, pagamentos, provedores de IA,
+  cache, telemetria, relógio e geração de identificadores;
+- [x] transformar Oak, Supabase, Stripe, GPT, Gemini e Claude em adaptadores,
+  mantendo configuração e detalhes de SDK fora do domínio;
+- [x] tornar as rotas finas: autenticar, validar DTO, executar um caso de uso e
+  converter seu resultado em resposta HTTP;
+- [x] migrar um contexto por vez, preservando os testes de contrato existentes
+  e evitando uma troca estrutural de todo o backend em um único PR;
+- [x] adicionar testes unitários das regras de domínio sem rede, banco ou ENV e
+  testes de contrato para os adaptadores críticos;
+- [x] documentar dependências permitidas entre camadas e contextos, incluindo
+  uma regra automatizada que impeça imports de infraestrutura no domínio;
+- [x] remover serviços legados somente depois que seus casos de uso e contratos
+  tiverem sido substituídos e validados.
+
+Ordem sugerida de migração: App Sessions, Carteira e Billing, Cache, Chat e, por
+último, Identidade. App Sessions oferece o primeiro corte com menor risco;
+Carteira e Billing validam as fronteiras onde consistência e idempotência são
+mais importantes; Chat fica para depois porque coordena os demais contextos.
+
+Gate de saída: regras de crédito, expiração de sessão e cobrança de cache podem
+ser executadas em testes sem Oak, Supabase, Stripe ou APIs externas; trocar um
+provedor exige implementar um adaptador, não alterar o domínio; as rotas públicas
+continuam compatíveis; e a suíte completa permanece verde durante toda a migração.
+
 ## M5 - Empacotamento e ambiente de produção
 
 Entregáveis:
 
-- [ ] criar manifesto de produção com URLs, ícones, suporte e SSO definitivos;
-- [ ] remover `localhost` e cliente de HMR do artefato implantado;
-- [ ] alinhar `BACKEND_URL`, CORS e domínios autorizados;
-- [ ] separar e documentar configurações de dev, staging e produção;
+- [x] preparar geração parametrizada do manifesto de produção e falhar o build
+  quando `PROD_APP_DOMAIN` não estiver definido;
+- [ ] definir no manifesto final URLs, ícones, suporte e SSO definitivos;
+- [x] configurar o build de produção sem `devServer`, HMR e referências de
+  desenvolvimento no manifesto gerado;
+- [x] inspecionar o artefato de produção gerado localmente e comprovar ausência
+  de `localhost`, túnel e HMR no manifesto transformado;
+- [ ] inspecionar o artefato implantado e comprovar ausência de `localhost` e HMR;
+- [ ] substituir os domínios temporários pelo domínio oficial no manifesto,
+  em `BACKEND_URL` e em `CORS_ALLOWED_ORIGINS`;
+- [x] implementar e testar em modo de produção a rejeição de `localhost`, túnel,
+  wildcard e origem `null` no CORS;
+- [ ] validar contra o endpoint implantado que `localhost`, o túnel
+  `supercontext-ui.atdigitalbank.com.br`, wildcard e origem `null` não recebem
+  autorização CORS;
+- [x] separar e documentar configurações de dev, staging e produção;
 - [ ] validar certificados, secrets, health check e observabilidade;
 - [ ] executar smoke test no Word Windows, Mac e Web.
 
 Gate de saída: o pacote instalado em uma máquina limpa abre o Wing, autentica e conclui uma ação sem depender de infraestrutura local.
 
+## M5.1 - Site comercial e cadastro
+
+Objetivo: publicar uma presença comercial mínima para explicar a proposta do
+Wing e converter um visitante em cliente, do cadastro à contratação de um plano,
+reaproveitando a identidade, o Magic Link e o gateway Stripe existentes.
+
+Entregáveis:
+
+- [x] criar uma landing page curta, responsiva e acessível;
+- [ ] publicar a landing page no domínio oficial;
+- [x] apresentar problema, proposta de valor, principais casos de uso e CTA de cadastro;
+- [x] criar o fluxo `Cadastrar` com e-mail, código de acesso e confirmação da conta;
+- [x] reutilizar os endpoints de Magic Link e a criação de conta existentes,
+  sem introduzir uma segunda identidade;
+- [x] aplicar rate limit, mensagens anti-enumeração e tratamento claro de erros;
+- [x] definir e apresentar planos contratáveis com preço, créditos, limites e
+  diferenças objetivas entre Free, Pro e futuras ofertas para escritórios;
+- [x] permitir a contratação dos planos Basic e Pro no próprio site, conectando o CTA ao
+  checkout Stripe após cadastro ou autenticação;
+- [x] tratar retorno, cancelamento e falha do checkout e confirmar no site o
+  plano efetivamente ativado;
+- [ ] publicar Termos de Uso e Política de Privacidade após revisão jurídica e
+  preenchimento dos dados oficiais;
+- [x] disponibilizar formulário funcional de contato e suporte, com protocolo,
+  consentimento de privacidade, proteção antispam e persistência no backend;
+- [ ] definir o destino após o cadastro conforme a intenção do usuário:
+  instalação do add-in, acesso ao plano Free ou início do checkout;
+- [ ] registrar telemetria mínima do funil: visita, início do cadastro,
+  cadastro concluído e checkout iniciado;
+- [x] implementar os estados de expiração, erro e reenvio do código de acesso;
+- [ ] validar visualmente o fluxo completo em desktop e mobile.
+
+Fora deste milestone: blog, CMS, área editorial, painel administrativo e site
+institucional extenso.
+
+Gate de saída: uma pessoa sem conta acessa o domínio oficial, entende o produto,
+compara os planos, conclui o cadastro por e-mail, contrata o plano escolhido no
+próprio site e recebe um próximo passo utilizável sem intervenção manual.
+
+## M5.2 - Controle do acesso gratuito e waitlist
+
+Entregáveis:
+
+- [x] limitar atomicamente a concessão gratuita às primeiras 20 contas;
+- [x] preservar as contas existentes por ordem de criação e colocar excedentes
+  na lista de espera durante a migration;
+- [x] permitir que contas em waitlist autentiquem e contratem Basic ou Pro;
+- [x] bloquear o consumo de créditos gratuitos por contas em waitlist no backend;
+- [x] devolver `free`, `waitlisted` ou `paid` na sessão autenticada;
+- [x] informar cadastro, posição na fila e opção de assinatura no site;
+- [ ] aplicar a migration no ambiente de produção e confirmar a distribuição
+  das 20 vagas antes de abrir novos cadastros.
+
+Gate de saída: nenhuma condição de corrida concede a 21ª vaga gratuita, contas
+em espera não consomem créditos e continuam capazes de contratar um plano pago.
+
 ## M6 - Quality gate e piloto pago
 
 Entregáveis:
 
-- [ ] excluir artefatos gerados do lint e zerar erros no código mantido;
-- [ ] criar CI para check, testes, build, lint e validação do manifesto;
-- [ ] cobrir auth, billing, quota, chat e telemetria com testes de integração;
-- [ ] criar roteiro manual para interações reais com o Word;
-- [ ] executar revisão de segurança e privacidade;
-- [ ] documentar rollback, suporte e operação do piloto;
+- [x] excluir artefatos gerados do lint e zerar erros no código mantido;
+- [x] criar CI para check, testes, build, lint e validação do manifesto;
+- [x] corrigir os erros atuais do lint e comprovar localmente todos os jobs do
+  CI verdes: 195 testes, builds do add-in/site e manifesto válido;
+- [ ] tornar todos os checks do CI obrigatórios para merge na proteção da branch;
+- [x] cobrir auth, billing, quota, chat e telemetria com testes de integração;
+- [x] criar roteiro manual para interações reais com o Word;
+- [ ] concluir a revisão de segurança e privacidade iniciada em
+  `DOCS/SECURITY_PRIVACY_REVIEW.md`, zerando os achados P0;
+- [x] documentar rollback, suporte e operação do piloto em
+  `DOCS/PILOT_OPERATIONS.md`;
 - [ ] liberar primeiro para um grupo pequeno de clientes pagantes.
 
 Gate de saída: todos os checks são bloqueantes no CI e o piloto possui responsável, métricas, suporte e rollback definidos.

@@ -3,8 +3,9 @@ import {
   assertRejects,
 } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { Application, Router } from "../deps.ts";
+import type { ChatHistoryEntry } from "../contexts/cache/domain/ChatHistoryCompactor.ts";
 import {
-  type ChatHistoryEntry,
+  type ChatConfig,
   type ChatLimits,
   type ChatRouteDependencies,
   createChatRouter,
@@ -18,18 +19,30 @@ const limits: ChatLimits = {
   maxDocumentChars: 100,
   maxMessageChars: 40,
   maxMessages: 2,
-  maxSessionsPerAccount: 2,
   sessionTtlMs: 1_000,
 };
+
+const DEFAULT_APP_SESSION_ID = "app-session-1";
 
 const streamFrom = (chunks: string[]): AsyncGenerator<string, void, unknown> =>
   (async function* () {
     for (const chunk of chunks) yield chunk;
   })();
 
+const defaultConfig: ChatConfig = {
+  contextWindowEntries: 10,
+  promptCacheTtlSeconds: 3_600,
+  trialCreditLimit: 1_000,
+  trialDurationSeconds: 30 * 24 * 60 * 60,
+  monthlyCreditLimits: { basic: 3_500, pro: 8_000 },
+  maxOutputTokens: 2_048,
+  defaultBillableModel: "gemini-flash-3.5",
+};
+
 const createTestApp = (
   overrides: Partial<ChatRouteDependencies> = {},
   limitOverrides: Partial<ChatLimits> = {},
+  configOverrides: Partial<ChatConfig> = {},
 ) => {
   const dependencies: ChatRouteDependencies = {
     generateStream: () => streamFrom(["resposta"]),
@@ -40,6 +53,13 @@ const createTestApp = (
       allowed: true,
     }),
     settleCredits: async () => 1,
+    reserveTrialCredits: async () => ({
+      reservationId: "00000000-0000-0000-0000-000000000001",
+      creditsUsed: 1,
+      allowed: true,
+      trialExpired: false,
+    }),
+    settleTrialCredits: async () => 1,
     isAccountRevoked: async () => false,
     now: () => 1_000,
     randomUUID: () => "session-1",
@@ -47,11 +67,32 @@ const createTestApp = (
     cancelExpiration: () => undefined,
     trackEvent: () => undefined,
     getCachedContent: async () => null,
+    appSessions: {
+      validate: (appSessionId, accountId) =>
+        appSessionId === DEFAULT_APP_SESSION_ID
+          ? {
+            appSessionId,
+            accountId,
+            documentId: "doc-1",
+            createdAt: 0,
+            lastHeartbeatAt: 0,
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
+            timeoutId: 1,
+          }
+          : null,
+    },
+    isProviderAvailable: () => true,
+    isProduction: true,
     ...overrides,
   };
   const app = new Application();
   const root = new Router();
-  const chat = createChatRouter(dependencies, { ...limits, ...limitOverrides });
+  const chat = createChatRouter(
+    dependencies,
+    { ...limits, ...limitOverrides },
+    { ...defaultConfig, ...configOverrides },
+  );
   root.use("/api/v1/chat", chat.routes(), chat.allowedMethods());
   app.use(root.routes());
   app.use(root.allowedMethods());
@@ -66,6 +107,7 @@ const request = async (
   path: "/start" | "/message",
   body: Record<string, unknown>,
   token?: string,
+  appSessionId: string | null = DEFAULT_APP_SESSION_ID,
 ) =>
   await app.handle(
     new Request(`http://localhost/api/v1/chat${path}`, {
@@ -73,6 +115,7 @@ const request = async (
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(appSessionId ? { "X-Wing-App-Session": appSessionId } : {}),
       },
       body: JSON.stringify(body),
     }),
@@ -150,7 +193,10 @@ Deno.test("M4.5 chat: /start com priorMessages reconstrói o contexto da convers
   await response!.text();
 
   assertEquals(receivedHistory?.length, 2);
-  assertEquals(receivedHistory?.[0].parts[0].text, "qual é o prazo da cláusula 3?");
+  assertEquals(
+    receivedHistory?.[0].parts[0].text,
+    "qual é o prazo da cláusula 3?",
+  );
   assertEquals(receivedHistory?.[1].parts[0].text, "o prazo é 30 dias");
 });
 
@@ -164,7 +210,9 @@ Deno.test("M4.5 chat: priorMessages malformado ou vazio não quebra /start (sess
   }, token);
   assertEquals(withGarbage?.status, 201);
 
-  const withoutField = await request(app, "/start", { documentText: "Documento" }, token);
+  const withoutField = await request(app, "/start", {
+    documentText: "Documento",
+  }, token);
   assertEquals(withoutField?.status, 201);
 });
 
@@ -201,10 +249,11 @@ Deno.test("M3 chat: revalida entitlement e bloqueia cota antes do provedor", asy
       entitlementCalls += 1;
       return { plan: "free", status: "canceled" };
     },
-    reserveCredits: async () => ({
+    reserveTrialCredits: async () => ({
       reservationId: "00000000-0000-0000-0000-000000000002",
       creditsUsed: 1_000,
       allowed: false,
+      trialExpired: false,
     }),
     generateStream: () => {
       providerCalls += 1;
@@ -227,15 +276,16 @@ Deno.test("M4.5 chat: reserva histórico e liquida entrada e saída", async () =
   let reservedCredits = 0;
   let settledCredits = 0;
   const app = createTestApp({
-    reserveCredits: async (_accountId, _model, credits) => {
+    reserveTrialCredits: async (_accountId, _model, credits) => {
       reservedCredits = credits;
       return {
         reservationId: "00000000-0000-0000-0000-000000000004",
         creditsUsed: credits,
         allowed: true,
+        trialExpired: false,
       };
     },
-    settleCredits: async (_reservationId, charge) => {
+    settleTrialCredits: async (_reservationId, charge) => {
       settledCredits = charge.credits;
       return charge.credits;
     },
@@ -504,38 +554,108 @@ Deno.test("M4.5 chat: nível 'profundo' com plano Pro chama e cobra o mesmo mode
   assertEquals(executedModel, "claude-sonnet-5");
 });
 
+Deno.test("chat: provedor sem API key retorna 503 antes de reservar créditos ou iniciar stream", async () => {
+  let reserveCalls = 0;
+  let providerCalls = 0;
+  const app = createTestApp({
+    isProviderAvailable: (model) => !model?.startsWith("gpt"),
+    reserveCredits: async () => {
+      reserveCalls += 1;
+      return {
+        reservationId: "00000000-0000-0000-0000-000000000010",
+        creditsUsed: 0,
+        allowed: true,
+      };
+    },
+    generateStream: () => {
+      providerCalls += 1;
+      return streamFrom(["não deve ocorrer"]);
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "equilibrado",
+  }, token);
+
+  assertEquals(response?.status, 503);
+  assertEquals(await response!.json(), {
+    error: "O modelo selecionado está temporariamente indisponível.",
+    code: "model_provider_unavailable",
+    provider: "openai",
+    model: "gpt-5.6-terra",
+  });
+  assertEquals(reserveCalls, 0);
+  assertEquals(providerCalls, 0);
+});
+
+Deno.test("chat: desenvolvimento usa Gemini quando o provedor resolvido não tem API key", async () => {
+  let reservedModel: string | undefined;
+  let executedModel: string | undefined;
+  const app = createTestApp({
+    isProduction: false,
+    isProviderAvailable: (model) => !model?.startsWith("gpt"),
+    reserveTrialCredits: async (_accountId, model, credits) => {
+      reservedModel = model;
+      return {
+        reservationId: "00000000-0000-0000-0000-000000000011",
+        creditsUsed: credits,
+        allowed: true,
+        trialExpired: false,
+      };
+    },
+    generateStream: (_message, _history, options) => {
+      executedModel = options?.model;
+      return streamFrom(["fallback"]);
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "equilibrado",
+  }, token);
+  await response!.text();
+
+  assertEquals(response?.status, 200);
+  assertEquals(reservedModel, "gemini-flash-3.5");
+  assertEquals(executedModel, "gemini-flash-3.5");
+});
+
 Deno.test("M4.5 chat: histórico além da janela de contexto é compactado antes de ir pro provedor", async () => {
-  const originalWindow = Deno.env.get("WING_CHAT_CONTEXT_WINDOW");
-  Deno.env.set("WING_CHAT_CONTEXT_WINDOW", "4"); // mantém só 2 pares brutos
-  try {
-    const histories: ChatHistoryEntry[][] = [];
-    const app = createTestApp(
-      {
-        generateStream: (_message, history) => {
-          histories.push(structuredClone(history as ChatHistoryEntry[]));
-          return streamFrom(["ok"]);
-        },
+  const histories: ChatHistoryEntry[][] = [];
+  const app = createTestApp(
+    {
+      generateStream: (_message, history) => {
+        histories.push(structuredClone(history as ChatHistoryEntry[]));
+        return streamFrom(["ok"]);
       },
-      { maxMessages: 5 },
-    );
-    const token = await withSession();
-    const sessionId = await startSession(app, token);
+    },
+    { maxMessages: 5 },
+    { contextWindowEntries: 4 }, // mantém só 2 pares brutos
+  );
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
 
-    for (let i = 0; i < 4; i += 1) {
-      const response = await request(app, "/message", { sessionId, message: `p${i}` }, token);
-      await response!.text();
-    }
-
-    // Antes de estourar a janela: histórico bruto, sem resumo.
-    assertEquals(histories[0].length, 0);
-    assertEquals(histories[2].length, 4);
-    // A 4ª chamada já tem 6 entradas acumuladas (> janela de 4) — compacta.
-    assertEquals(histories[3][0].parts[0].text.includes("Resumo de"), true);
-    assertEquals(histories[3].length, 6); // 2 de resumo + 4 brutas (janela)
-  } finally {
-    if (originalWindow === undefined) Deno.env.delete("WING_CHAT_CONTEXT_WINDOW");
-    else Deno.env.set("WING_CHAT_CONTEXT_WINDOW", originalWindow);
+  for (let i = 0; i < 4; i += 1) {
+    const response = await request(app, "/message", {
+      sessionId,
+      message: `p${i}`,
+    }, token);
+    await response!.text();
   }
+
+  // Antes de estourar a janela: histórico bruto, sem resumo.
+  assertEquals(histories[0].length, 0);
+  assertEquals(histories[2].length, 4);
+  // A 4ª chamada já tem 6 entradas acumuladas (> janela de 4) — compacta.
+  assertEquals(histories[3][0].parts[0].text.includes("Resumo de"), true);
+  assertEquals(histories[3].length, 6); // 2 de resumo + 4 brutas (janela)
 });
 
 Deno.test("M4.5 chat: modelo Gemini usa o cache explícito (GoogleAICacheManager) via getCachedContent", async () => {
@@ -571,10 +691,15 @@ Deno.test("M4.5 chat: modelo Gemini usa o cache explícito (GoogleAICacheManager
 });
 
 Deno.test("M4.5 chat: GPT/Claude pedem cache de prompt implícito ao provedor (enablePromptCache)", async () => {
-  const receivedOptions: Array<{ enablePromptCache?: boolean; model?: string }> = [];
+  const receivedOptions: Array<
+    { enablePromptCache?: boolean; model?: string }
+  > = [];
   const app = createTestApp({
     generateStream: (_message, _history, options) => {
-      receivedOptions.push({ enablePromptCache: options?.enablePromptCache, model: options?.model });
+      receivedOptions.push({
+        enablePromptCache: options?.enablePromptCache,
+        model: options?.model,
+      });
       return streamFrom(["ok"]);
     },
   });
@@ -587,19 +712,28 @@ Deno.test("M4.5 chat: GPT/Claude pedem cache de prompt implícito ao provedor (e
     qualityLevel: "rapido",
   }, token))!.text();
 
-  assertEquals(receivedOptions[0], { enablePromptCache: true, model: "gpt-5.6-luna" });
+  assertEquals(receivedOptions[0], {
+    enablePromptCache: true,
+    model: "gpt-5.6-luna",
+  });
 });
 
-Deno.test("M4.5 chat: telemetria de cache usa a contagem real de tokens do provedor, não 'um cache foi tentado'", async () => {
-  const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
+Deno.test("M4.7 chat: telemetria de cache usa a repartição real de tokens do provedor e créditos economizados, não 'um cache foi tentado'", async () => {
+  const trackedEvents: Array<
+    { name: string; properties?: Record<string, unknown> }
+  > = [];
   const app = createTestApp({
     trackEvent: (eventName, properties) => {
       trackedEvents.push({ name: eventName, properties });
     },
     generateStream: () => {
       // deno-lint-ignore require-yield
-      return (async function* (): AsyncGenerator<string, number, unknown> {
-        return 350; // simula tokens reais economizados, reportados pelo provedor
+      return (async function* (): AsyncGenerator<
+        string,
+        { cachedInputTokens: number; cacheWriteTokens: number },
+        unknown
+      > {
+        return { cachedInputTokens: 350, cacheWriteTokens: 0 }; // simula economia real reportada pelo provedor
       })();
     },
   });
@@ -612,17 +746,28 @@ Deno.test("M4.5 chat: telemetria de cache usa a contagem real de tokens do prove
     qualityLevel: "rapido",
   }, token))!.text();
 
-  const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
-  assertEquals(cacheEvent?.properties, { cached: 1, cached_tokens: 350, provider: "openai" });
+  const cacheEvent = trackedEvents.find((e) =>
+    e.name === "chat_context_cache_used"
+  );
+  // gpt-5.6-luna: inputPerThousandTokens=3. 350 tokens cheios = ceil(350*3/1000)=2;
+  // com 50% de desconto = ceil(2*0.5)=1. creditsSaved = 2-1 = 1.
+  assertEquals(cacheEvent?.properties, {
+    cached: 1,
+    cached_tokens: 350,
+    provider: "openai",
+    credits_saved: 1,
+  });
 });
 
-Deno.test("M4.5 chat: sem hit real, telemetria registra cached:0 e cached_tokens:0 mesmo com cache tentado", async () => {
-  const trackedEvents: Array<{ name: string; properties?: Record<string, unknown> }> = [];
+Deno.test("M4.7 chat: sem hit real, telemetria registra cached:0, cached_tokens:0 e credits_saved:0 mesmo com cache tentado", async () => {
+  const trackedEvents: Array<
+    { name: string; properties?: Record<string, unknown> }
+  > = [];
   const app = createTestApp({
     trackEvent: (eventName, properties) => {
       trackedEvents.push({ name: eventName, properties });
     },
-    generateStream: () => streamFrom(["sem cache"]), // retorna void/0 por padrão
+    generateStream: () => streamFrom(["sem cache"]), // retorna void por padrão
   });
   const token = await withSession();
   const sessionId = await startSession(app, token);
@@ -633,6 +778,211 @@ Deno.test("M4.5 chat: sem hit real, telemetria registra cached:0 e cached_tokens
     qualityLevel: "rapido",
   }, token))!.text();
 
-  const cacheEvent = trackedEvents.find((e) => e.name === "chat_context_cache_used");
-  assertEquals(cacheEvent?.properties, { cached: 0, cached_tokens: 0, provider: "openai" });
+  const cacheEvent = trackedEvents.find((e) =>
+    e.name === "chat_context_cache_used"
+  );
+  assertEquals(cacheEvent?.properties, {
+    cached: 0,
+    cached_tokens: 0,
+    provider: "openai",
+    credits_saved: 0,
+  });
+});
+
+Deno.test("M4.7 chat: escrita de cache (Anthropic) entra na cobrança final e na telemetria, mesmo sem hit de leitura", async () => {
+  const trackedEvents: Array<
+    { name: string; properties?: Record<string, unknown> }
+  > = [];
+  let settledCharge: { credits: number; cacheWriteTokens?: number } | undefined;
+  const app = createTestApp({
+    getEntitlement: async () => ({ plan: "pro", status: "active" }), // "profundo" exige plano pago
+    trackEvent: (eventName, properties) => {
+      trackedEvents.push({ name: eventName, properties });
+    },
+    settleCredits: async (_reservationId, charge) => {
+      settledCharge = charge as typeof settledCharge;
+      return charge.credits;
+    },
+    generateStream: () => {
+      // deno-lint-ignore require-yield
+      return (async function* (): AsyncGenerator<
+        string,
+        { cachedInputTokens: number; cacheWriteTokens: number },
+        unknown
+      > {
+        return { cachedInputTokens: 0, cacheWriteTokens: 500 };
+      })();
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  await (await request(app, "/message", {
+    sessionId,
+    message: "Pergunta",
+    qualityLevel: "profundo",
+  }, token))!.text();
+
+  const cacheEvent = trackedEvents.find((e) =>
+    e.name === "chat_context_cache_used"
+  );
+  assertEquals(cacheEvent?.properties, {
+    cached: 0, // escrita não é "hit" — só leitura conta como cache usado com desconto
+    cached_tokens: 500,
+    provider: "anthropic",
+    credits_saved: 0, // escrita é cobrada à tarifa cheia, sem desconto
+  });
+  assertEquals(settledCharge?.cacheWriteTokens, 500);
+});
+
+Deno.test("M4.7 chat: totalInputTokens real do provedor substitui a estimativa por tamanho de texto na liquidação", async () => {
+  let settledCharge: { inputTokens: number } | undefined;
+  const app = createTestApp({
+    settleTrialCredits: async (_reservationId, charge) => {
+      settledCharge = charge as typeof settledCharge;
+      return charge.credits;
+    },
+    generateStream: () => {
+      // deno-lint-ignore require-yield
+      return (async function* (): AsyncGenerator<
+        string,
+        {
+          cachedInputTokens: number;
+          cacheWriteTokens: number;
+          totalInputTokens: number;
+        },
+        unknown
+      > {
+        // Bem maior do que a estimativa por tamanho de texto geraria pra
+        // uma mensagem tão curta — prova que o valor real do provedor
+        // venceu a heurística, não só coexistiu com ela.
+        return {
+          cachedInputTokens: 0,
+          cacheWriteTokens: 0,
+          totalInputTokens: 50_000,
+        };
+      })();
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  await (await request(app, "/message", {
+    sessionId,
+    message: "Oi",
+    qualityLevel: "rapido",
+  }, token))!.text();
+
+  assertEquals(settledCharge?.inputTokens, 50_000);
+});
+
+Deno.test("M4.6 chat: /start exige X-Wing-App-Session", async () => {
+  const token = await withSession();
+  const app = createTestApp();
+  const response = await request(
+    app,
+    "/start",
+    { documentText: "Documento" },
+    token,
+    null,
+  );
+  assertEquals(response?.status, 400);
+  assertEquals((await response!.json()).code, "app_session_required");
+});
+
+Deno.test("M4.6 chat: /start rejeita app session inválida ou de outra conta", async () => {
+  const token = await withSession();
+  const app = createTestApp();
+  const response = await request(
+    app,
+    "/start",
+    { documentText: "Documento" },
+    token,
+    "app-session-inexistente",
+  );
+  assertEquals(response?.status, 403);
+  assertEquals((await response!.json()).code, "app_session_expired");
+});
+
+Deno.test("M4.6 chat: /message revalida app session e falha se ela expirou no meio da conversa", async () => {
+  let appSessionRevoked = false;
+  const app = createTestApp({
+    appSessions: {
+      validate: (appSessionId, accountId) =>
+        !appSessionRevoked && appSessionId === DEFAULT_APP_SESSION_ID
+          ? {
+            appSessionId,
+            accountId,
+            documentId: "doc-1",
+            createdAt: 0,
+            lastHeartbeatAt: 0,
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
+            timeoutId: 1,
+          }
+          : null,
+    },
+  });
+  const token = await withSession();
+  const sessionId = await startSession(app, token);
+
+  appSessionRevoked = true;
+  const response = await request(app, "/message", {
+    sessionId,
+    message: "Oi",
+  }, token);
+  assertEquals(response?.status, 403);
+  assertEquals((await response!.json()).code, "app_session_expired");
+});
+
+Deno.test("M4.6 chat: nenhum limite de sessões simultâneas por conta — três instâncias coexistem sem contaminação de histórico", async () => {
+  const validAppSessionIds = new Set(["app-a", "app-b", "app-c"]);
+  let sessionCounter = 0;
+  const app = createTestApp({
+    randomUUID: () => `session-${++sessionCounter}`,
+    appSessions: {
+      validate: (appSessionId, accountId) =>
+        validAppSessionIds.has(appSessionId)
+          ? {
+            appSessionId,
+            accountId,
+            documentId: "doc-1",
+            createdAt: 0,
+            lastHeartbeatAt: 0,
+            expiresAt: Number.MAX_SAFE_INTEGER,
+            absoluteExpiresAt: Number.MAX_SAFE_INTEGER,
+            timeoutId: 1,
+          }
+          : null,
+    },
+  });
+  const token = await withSession();
+
+  const sessionIds: string[] = [];
+  for (const appSessionId of ["app-a", "app-b", "app-c"]) {
+    const response = await request(
+      app,
+      "/start",
+      { documentText: "Documento" },
+      token,
+      appSessionId,
+    );
+    assertEquals(response?.status, 201);
+    sessionIds.push((await response!.json()).sessionId as string);
+  }
+  assertEquals(new Set(sessionIds).size, 3);
+
+  for (let i = 0; i < sessionIds.length; i++) {
+    const response = await request(
+      app,
+      "/message",
+      {
+        sessionId: sessionIds[i],
+        message: `pergunta ${i}`,
+      },
+      token,
+      ["app-a", "app-b", "app-c"][i],
+    );
+    assertEquals(response?.status, 200);
+  }
 });

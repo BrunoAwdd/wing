@@ -23,16 +23,27 @@ const reject = (ctx: Context) => {
 export const requireWingSession: Middleware = async (ctx, next) => {
   const token = getBearerToken(ctx);
   if (!token) {
+    // Diagnóstico temporário: distingue "header Authorization não chegou
+    // (ou não bate no formato Bearer)" de "token chegou mas foi rejeitado
+    // por wingSessionService.verify()" — os dois casos viravam o mesmo 401
+    // silencioso, sem log nenhum, indistinguíveis no terminal.
+    console.error(
+      `[requireWingSession] Sem Bearer token válido. Authorization recebido: ${
+        JSON.stringify(ctx.request.headers.get("Authorization"))
+      }`,
+    );
     reject(ctx);
     return;
   }
 
   try {
     ctx.state.auth = await wingSessionService.verify(token);
-    await next();
   } catch {
     reject(ctx);
+    return;
   }
+
+  await next();
 };
 
 export const optionalWingSession: Middleware = async (ctx, next) => {
@@ -44,10 +55,12 @@ export const optionalWingSession: Middleware = async (ctx, next) => {
 
   try {
     ctx.state.auth = await wingSessionService.verify(token);
-    await next();
   } catch {
     reject(ctx);
+    return;
   }
+
+  await next();
 };
 
 export const getWingAuth = (ctx: Context): WingSessionClaims => {

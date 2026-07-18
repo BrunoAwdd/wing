@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: backend (deno)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno lint
+      - run: deno check src/
+      - name: test
+        run: deno task test
+        env:
+          GEMINI_API_KEY: ci-placeholder
+          JWT_SECRET: ci-only-session-secret-at-least-32-bytes
+          SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_SCHEMA: wing
+          SUPABASE_ANON_KEY: ci-placeholder-anon-key
+          SUPABASE_SERVICE_KEY: ci-placeholder-service-key
+          MICROSOFT_TOKEN_AUDIENCE: ci-test-audience
+
+  frontend:
+    name: frontend (add-in)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - name: install wasm-pack
+        run: cargo install wasm-pack --locked
+      # Repo não versiona package-lock.json (ver .gitignore) — `npm ci`
+      # exigiria um lockfile presente, então instala sem lock aqui.
+      - run: npm install
+      - run: npm run lint
+      - run: npm run validate
+      - run: npm run build:wasm
+      - name: build
+        run: npm run build
+        env:
+          # Domínio placeholder só para a build de CI validar o caminho de
+          # produção do webpack (que exige PROD_APP_DOMAIN) — não é o
+          # domínio real do add-in publicado.
+          PROD_APP_DOMAIN: https://ci-placeholder.invalid
+
+  site:
+    name: site (landing + cadastro)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
