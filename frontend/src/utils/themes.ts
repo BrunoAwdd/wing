@@ -1,3 +1,4 @@
+// prettier-ignore -- versões do formatter do Office divergem nesta união.
 export type WordStyleRole =
   | "normal"
   | "title"

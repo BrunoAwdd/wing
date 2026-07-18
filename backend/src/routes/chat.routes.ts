@@ -101,7 +101,7 @@ const defaultDependencies: ChatRouteDependencies = {
   now: Date.now,
   randomUUID: () => crypto.randomUUID(),
   scheduleExpiration: (callback, delay) => {
-    const timeoutId = setTimeout(callback, delay);
+    const timeoutId = setTimeout(callback, delay) as unknown as number;
     Deno.unrefTimer(timeoutId);
     return timeoutId;
   },

@@ -1,4 +1,8 @@
-import { RemoteCacheClient, SleepProvider, TimeProvider } from "../ports/out/CachePorts.ts";
+import {
+  RemoteCacheClient,
+  SleepProvider,
+  TimeProvider,
+} from "../ports/out/CachePorts.ts";
 import { hashDocumentKey } from "../../domain/PromptCacheKey.ts";
 
 export interface CachedPrefix {
@@ -16,7 +20,7 @@ export class PromptCacheUseCases {
     private readonly client: RemoteCacheClient,
     private readonly timeProvider: TimeProvider,
     private readonly sleepProvider: SleepProvider,
-    private readonly createTimeoutMs: number = 30_000
+    private readonly createTimeoutMs: number = 30_000,
   ) {}
 
   private pruneEndedAppSessions(now: number) {
@@ -77,23 +81,26 @@ export class PromptCacheUseCases {
       systemInstruction: params.systemInstruction,
       ttlSeconds: params.ttlSeconds,
     });
-    
+
     let timeoutId: number | undefined;
     const timedOut = Symbol("cache-create-timeout");
     const timeoutPromise = new Promise<typeof timedOut>((resolve) => {
-      timeoutId = setTimeout(() => resolve(timedOut), this.createTimeoutMs);
+      timeoutId = setTimeout(
+        () => resolve(timedOut),
+        this.createTimeoutMs,
+      ) as unknown as number;
     });
-    
+
     const createResult = await Promise.race([createPromise, timeoutPromise]);
     if (timeoutId !== undefined) clearTimeout(timeoutId);
-    
+
     if (createResult === timedOut) {
       void createPromise.then((late) => {
         if (late) return this.deleteRemote(late.name, remoteExpiresAt);
       }).catch(() => {});
       return null;
     }
-    
+
     const created = createResult;
     if (!created) return null;
 
@@ -114,7 +121,10 @@ export class PromptCacheUseCases {
 
   async invalidateAppSession(appSessionId: string): Promise<void> {
     const now = this.timeProvider.now();
-    this.endedAppSessions.set(appSessionId, now + this.CREATE_RACE_TOMBSTONE_MS);
+    this.endedAppSessions.set(
+      appSessionId,
+      now + this.CREATE_RACE_TOMBSTONE_MS,
+    );
     this.pruneEndedAppSessions(now);
 
     const toDelete = Array.from(this.cache.entries()).filter(
