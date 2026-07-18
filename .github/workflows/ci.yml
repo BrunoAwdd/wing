@@ -41,11 +41,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - uses: dtolnay/rust-toolchain@stable
+      - name: install wasm-pack
+        run: cargo install wasm-pack --locked
       # Repo não versiona package-lock.json (ver .gitignore) — `npm ci`
       # exigiria um lockfile presente, então instala sem lock aqui.
       - run: npm install
       - run: npm run lint
       - run: npm run validate
+      - run: npm run build:wasm
       - name: build
         run: npm run build
         env:
