@@ -19,7 +19,8 @@ const download = (url, dest) =>
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           file.close();
           fs.unlinkSync(dest);
-          download(res.headers.location, dest).then(resolve, reject);
+          const redirectUrl = new URL(res.headers.location, url).toString();
+          download(redirectUrl, dest).then(resolve, reject);
           return;
         }
         if (res.statusCode !== 200) {
