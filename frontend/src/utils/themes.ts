@@ -1,12 +1,4 @@
-// prettier-ignore -- versões do formatter do Office divergem nesta união.
-export type WordStyleRole =
-  | "normal"
-  | "title"
-  | "subtitle"
-  | "heading1"
-  | "heading2"
-  | "heading3"
-  | "quote";
+export type WordStyleRole = "normal" | "title" | "subtitle" | "heading1" | "heading2" | "heading3" | "quote";
 
 export interface WordStyleFormat {
   fontName?: string;
