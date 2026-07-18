@@ -26,6 +26,7 @@ jobs:
           JWT_SECRET: ci-only-session-secret-at-least-32-bytes
           SUPABASE_URL: http://127.0.0.1:54321
           SUPABASE_SCHEMA: wing
+          SUPABASE_ANON_KEY: ci-placeholder-anon-key
           SUPABASE_SERVICE_KEY: ci-placeholder-service-key
           MICROSOFT_TOKEN_AUDIENCE: ci-test-audience
 
