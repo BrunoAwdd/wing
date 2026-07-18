@@ -18,6 +18,9 @@ export interface AccountInfo {
   id: string;
   email: string;
   display_name?: string | null;
+  free_access_granted_at?: string | null;
+  waitlisted_at?: string | null;
+  waitlist_position?: number | null;
 }
 
 export interface TokenResponse {
@@ -39,7 +42,13 @@ export interface MagicLinkProvider {
 // composition root nunca precisa preencher métodos não utilizados com
 // stubs `as any` pra satisfazer uma interface maior.
 export interface SessionIssuer {
-  issueSession(identity: { accountId: string; microsoftObjectId?: string; tenantId?: string }): Promise<TokenResponse>;
+  issueSession(
+    identity: {
+      accountId: string;
+      microsoftObjectId?: string;
+      tenantId?: string;
+    },
+  ): Promise<TokenResponse>;
 }
 
 export interface RefreshTokenGenerator {

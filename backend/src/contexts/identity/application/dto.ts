@@ -1,7 +1,11 @@
 import { TokenResponse } from "./ports/out/AuthPorts.ts";
 
 export interface TelemetryTracker {
-  trackEvent(eventName: string, properties?: Record<string, unknown>, accountId?: string): void;
+  trackEvent(
+    eventName: string,
+    properties?: Record<string, unknown>,
+    accountId?: string,
+  ): void;
 }
 
 export interface AuthSessionResponse extends TokenResponse {
@@ -11,5 +15,7 @@ export interface AuthSessionResponse extends TokenResponse {
     email: string;
     displayName: string | null;
     plan: string;
+    accessStatus: "free" | "waitlisted" | "paid";
+    waitlistPosition?: number;
   };
 }

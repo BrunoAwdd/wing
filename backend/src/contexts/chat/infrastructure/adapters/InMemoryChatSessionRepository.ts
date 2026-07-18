@@ -7,7 +7,7 @@ export class InMemoryChatSessionRepository implements ChatSessionRepository {
 
   constructor(
     private readonly scheduleTimer: (cb: () => void, delay: number) => number,
-    private readonly cancelTimer: (id: number) => void
+    private readonly cancelTimer: (id: number) => void,
   ) {}
 
   save(session: ChatSession): void {
@@ -31,7 +31,11 @@ export class InMemoryChatSessionRepository implements ChatSessionRepository {
     }
   }
 
-  scheduleExpiration(sessionId: string, delay: number, onExpired: () => void): void {
+  scheduleExpiration(
+    sessionId: string,
+    delay: number,
+    onExpired: () => void,
+  ): void {
     const timeoutId = this.scheduleTimer(() => {
       this.sessions.delete(sessionId);
       this.timeouts.delete(sessionId);

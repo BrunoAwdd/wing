@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { clearConversation as clearCachedConversation, loadConversation, saveConversation } from "../services/chatCache";
+import {
+  clearConversation as clearCachedConversation,
+  loadConversation,
+  saveConversation,
+} from "../services/chatCache";
 import { track } from "../services/telemetry";
 
 /* global Word, Office, process */
@@ -191,45 +195,48 @@ export const useDocumentChat = ({
   // o contexto completamente. O backend compacta pro mesmo limite de janela
   // usado durante a conversa, então isso nunca vira "reenviar histórico
   // ilimitado" (gate de saída do M4.5).
-  const ensureSession = useCallback(async (
-    targetAppSessionId: string | null = appSessionId,
-    forceNew = false,
-  ): Promise<string | null> => {
-    if (sessionId && !forceNew) return sessionId;
-    if (!isOnline || !sessionToken || !targetAppSessionId) {
-      setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
-      return null;
-    }
+  const ensureSession = useCallback(
+    async (
+      targetAppSessionId: string | null = appSessionId,
+      forceNew = false
+    ): Promise<string | null> => {
+      if (sessionId && !forceNew) return sessionId;
+      if (!isOnline || !sessionToken || !targetAppSessionId) {
+        setError("Ação bloqueada. Verifique sua conexão e sua sessão.");
+        return null;
+      }
 
-    const documentText = await getDocumentAsText();
-    if (!documentText.trim()) {
-      throw new Error("O documento está vazio.");
-    }
+      const documentText = await getDocumentAsText();
+      if (!documentText.trim()) {
+        throw new Error("O documento está vazio.");
+      }
 
-    const priorMessages = messages.slice(-MAX_PRIOR_MESSAGES_SENT).map((m) => ({
-      role: m.author,
-      parts: [{ text: m.content }],
-    }));
+      const priorMessages = messages.slice(-MAX_PRIOR_MESSAGES_SENT).map((m) => ({
+        role: m.author,
+        parts: [{ text: m.content }],
+      }));
 
-    const response = await fetch(`${BACKEND_URL}/api/v1/chat/start`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${sessionToken}`,
-        "X-Wing-App-Session": targetAppSessionId,
-      },
-      body: JSON.stringify({ documentText, priorMessages }),
-    });
+      const response = await fetch(`${BACKEND_URL}/api/v1/chat/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+          "X-Wing-App-Session": targetAppSessionId,
+        },
+        body: JSON.stringify({ documentText, priorMessages }),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "Falha ao retomar a sessão de chat.");
-    }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Falha ao retomar a sessão de chat.");
+      }
 
-    const { sessionId: newSessionId } = await response.json();
-    setSessionId(newSessionId);
-    return newSessionId;
-  }, [sessionId, isOnline, sessionToken, messages, appSessionId]);
+      const { sessionId: newSessionId } = await response.json();
+      setSessionId(newSessionId);
+      return newSessionId;
+    },
+    [sessionId, isOnline, sessionToken, messages, appSessionId]
+  );
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -305,7 +312,9 @@ export const useDocumentChat = ({
             response = await requestMessage(renewedChatSessionId, renewedAppSessionId);
             if (!response.ok || !response.body) {
               const retryError = await response.json();
-              throw new Error(retryError.error || "Falha ao enviar a mensagem após renovar a sessão.");
+              throw new Error(
+                retryError.error || "Falha ao enviar a mensagem após renovar a sessão."
+              );
             }
           } else {
             throw new Error(errorData.error || "Falha ao enviar a mensagem.");
@@ -357,7 +366,8 @@ export const useDocumentChat = ({
   );
 
   const clearConversation = useCallback(() => {
-    if (docIdRef.current && accountEmail) void clearCachedConversation(accountEmail, docIdRef.current);
+    if (docIdRef.current && accountEmail)
+      void clearCachedConversation(accountEmail, docIdRef.current);
     setMessages([]);
     setSessionId(null);
     setError(null);

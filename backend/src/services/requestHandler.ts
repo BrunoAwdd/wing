@@ -240,17 +240,29 @@ export const handleStreamRequest = async (
     if (!reservation.allowed) {
       const trialExpired = isTrial && "trialExpired" in reservation &&
         reservation.trialExpired;
+      const waitlisted = isTrial && "waitlisted" in reservation &&
+        reservation.waitlisted;
       console.log(
-        trialExpired ? "[HANDLER] Teste grátis expirado." : "[HANDLER] Cota excedida.",
+        waitlisted
+          ? "[HANDLER] Conta em lista de espera."
+          : trialExpired
+          ? "[HANDLER] Teste grátis expirado."
+          : "[HANDLER] Cota excedida.",
       );
       ctx.response.status = 402;
       ctx.response.body = {
-        error: trialExpired
+        error: waitlisted
+          ? "As vagas gratuitas foram preenchidas. Assine um plano para começar agora."
+          : trialExpired
           ? "Seu teste grátis expirou. Assine um plano para continuar."
           : isTrial
           ? "Créditos do teste grátis esgotados. Assine um plano para continuar."
           : "Limite mensal do seu plano atingido. Faça upgrade para continuar.",
-        code: trialExpired ? "trial_expired" : "quota_exceeded",
+        code: waitlisted
+          ? "waitlisted"
+          : trialExpired
+          ? "trial_expired"
+          : "quota_exceeded",
       };
       return;
     }

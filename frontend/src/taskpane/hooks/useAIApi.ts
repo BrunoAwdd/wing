@@ -186,11 +186,12 @@ export const useAIApi = ({
       );
     } catch (error) {
       console.error("Erro ao chamar o backend:", error);
-      const errorCode = error instanceof TypeError
-        ? "network_unavailable"
-        : (error as Error).message === "Response body is null"
-        ? "stream_invalid"
-        : "backend_request_failed";
+      const errorCode =
+        error instanceof TypeError
+          ? "network_unavailable"
+          : (error as Error).message === "Response body is null"
+            ? "stream_invalid"
+            : "backend_request_failed";
       track(
         "suggestion_failed",
         { command: commandToExecute.toLowerCase(), error_code: errorCode },

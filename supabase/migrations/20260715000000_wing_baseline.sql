@@ -12,8 +12,13 @@ create table wing.accounts (
   microsoft_tenant_id text,
   microsoft_object_id text,
   revoked_at timestamptz,
+  free_access_granted_at timestamptz,
+  waitlisted_at timestamptz,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint accounts_free_access_state_check check (
+    not (free_access_granted_at is not null and waitlisted_at is not null)
+  )
 );
 
 create unique index accounts_microsoft_identity_uidx
@@ -211,6 +216,46 @@ begin
 end;
 $$;
 
+create function wing.claim_free_access(
+  p_account_id uuid,
+  p_limit int
+) returns table(access_status text, waitlist_position bigint)
+language plpgsql security definer
+set search_path = pg_catalog, wing, pg_temp
+as $$
+declare
+  v_account wing.accounts%rowtype;
+  v_admitted bigint;
+begin
+  if p_limit < 0 then
+    raise exception 'p_limit cannot be negative';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('wing.free_access'));
+  select * into v_account from wing.accounts where id = p_account_id for update;
+  if not found then raise exception 'account not found'; end if;
+
+  if v_account.free_access_granted_at is null and v_account.waitlisted_at is null then
+    select count(*) into v_admitted from wing.accounts where free_access_granted_at is not null;
+    if v_admitted < p_limit then
+      update wing.accounts set free_access_granted_at = now(), updated_at = now() where id = p_account_id;
+    else
+      update wing.accounts set waitlisted_at = now(), updated_at = now() where id = p_account_id;
+    end if;
+  end if;
+
+  return query
+  select
+    case when account.free_access_granted_at is not null then 'free' else 'waitlisted' end,
+    case when account.waitlisted_at is null then null else (
+      select count(*) from wing.accounts queued
+      where queued.waitlisted_at is not null
+        and (queued.waitlisted_at, queued.id) <= (account.waitlisted_at, account.id)
+    ) end
+  from wing.accounts account where account.id = p_account_id;
+end;
+$$;
+
 create function wing.settle_usage_credits(
   p_reservation_id uuid,
   p_actual_credits bigint,
@@ -297,3 +342,4 @@ grant execute on function wing.settle_usage_credits(
   bigint,
   bigint
 ) to service_role;
+grant execute on function wing.claim_free_access(uuid, int) to service_role;

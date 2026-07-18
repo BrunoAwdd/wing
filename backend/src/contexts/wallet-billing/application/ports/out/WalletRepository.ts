@@ -8,6 +8,7 @@ export interface TrialReservationResult extends ReservationResult {
   // Distingue "sem crédito" de "prazo do teste esgotado" — quem chama
   // decide se devolve uma mensagem de upgrade diferente pra cada caso.
   trialExpired: boolean;
+  waitlisted?: boolean;
 }
 
 export interface IncrementResult {

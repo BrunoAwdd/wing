@@ -37,7 +37,11 @@ export type SuggestionHistory = {
  * @param command The command that generated the suggestion (e.g., 'fix', 'translate').
  * @param suggestions The array of suggestion paragraphs.
  */
-export const saveSuggestion = (originalText: Paragraph[], command: string, suggestions: Paragraph[]) => {
+export const saveSuggestion = (
+  originalText: Paragraph[],
+  command: string,
+  suggestions: Paragraph[]
+) => {
   if (!originalText || originalText.length === 0) return;
 
   try {

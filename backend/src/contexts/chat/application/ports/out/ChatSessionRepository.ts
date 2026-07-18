@@ -5,6 +5,10 @@ export interface ChatSessionRepository {
   get(sessionId: string): ChatSession | undefined;
   delete(sessionId: string): void;
   removeExpired(now: number): void;
-  scheduleExpiration(sessionId: string, delay: number, onExpired: () => void): void;
+  scheduleExpiration(
+    sessionId: string,
+    delay: number,
+    onExpired: () => void,
+  ): void;
   cancelExpiration(sessionId: string): void;
 }

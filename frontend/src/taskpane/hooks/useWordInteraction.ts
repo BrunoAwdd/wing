@@ -206,8 +206,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     }
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items/text");
         await context.sync();
 
@@ -260,8 +259,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     setIsUpdating(true);
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items");
         await context.sync();
 
@@ -290,8 +288,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     setIsUpdating(true);
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items");
         await context.sync();
 
@@ -318,8 +315,7 @@ export const useWordInteraction = ({ addLog }: WordInteractionProps) => {
     setIsUpdating(true);
     try {
       await Word.run(async (context) => {
-        const range = context.document.getSelection();
-        const paragraphs = range.paragraphs;
+        const paragraphs = context.document.getSelection().paragraphs;
         paragraphs.load("items");
         await context.sync();
 

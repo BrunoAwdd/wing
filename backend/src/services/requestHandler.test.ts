@@ -3,8 +3,8 @@ import { Application, Router } from "../deps.ts";
 import { isProviderAvailable, resolveAvailableModel } from "./aiService.ts";
 import {
   handleStreamRequest,
-  resolveActionExecutionModel,
   type RequestHandlerDependencies,
+  resolveActionExecutionModel,
 } from "./requestHandler.ts";
 import { buildFixPrompt, buildRewritePrompt } from "../prompts.ts";
 import { requireWingSession } from "../middlewares/authMiddleware.ts";
@@ -242,6 +242,29 @@ Deno.test("handleStreamRequest: bloqueia com trial_expired quando o teste gráti
   assertEquals(body.code, "trial_expired");
 });
 
+Deno.test("handleStreamRequest: conta em waitlist não consome créditos gratuitos", async () => {
+  const token = await withSession();
+  const app = createTestApp(
+    "fix",
+    buildFixPrompt,
+    testDependencies({
+      reserveTrialCredits: async () => ({
+        reservationId: "",
+        creditsUsed: 0,
+        allowed: false,
+        trialExpired: false,
+        waitlisted: true,
+      }),
+    }),
+  );
+  const response = await requestAction(app, "fix", {
+    text: [{ id: "1", text: "ola" }],
+  }, token);
+  assertEquals(response?.status, 402);
+  const body = await response!.json();
+  assertEquals(body.code, "waitlisted");
+});
+
 Deno.test("handleStreamRequest: conta Basic usa cota mensal (reserveCredits), não o teste grátis", async () => {
   const token = await withSession();
   let reserveTrialCalled = false;
@@ -311,7 +334,10 @@ Deno.test("handleStreamRequest: bloqueia nível Profundo em conta Free antes de 
 
 Deno.test("handleStreamRequest: sucesso reserva e liquida créditos, e dispara telemetria de fases", async () => {
   const token = await withSession();
-  const trackedEvents: { name: string; properties?: Record<string, unknown> }[] = [];
+  const trackedEvents: {
+    name: string;
+    properties?: Record<string, unknown>;
+  }[] = [];
   let settledCharge: { credits: number } | undefined;
   const app = createTestApp(
     "fix",

@@ -1,4 +1,8 @@
-import { MicrosoftAccountProvider, MicrosoftTokenValidator, SessionIssuer } from "../ports/out/AuthPorts.ts";
+import {
+  MicrosoftAccountProvider,
+  MicrosoftTokenValidator,
+  SessionIssuer,
+} from "../ports/out/AuthPorts.ts";
 import { AuthSessionResponse, TelemetryTracker } from "../dto.ts";
 
 export class MicrosoftAuthUseCases {
@@ -9,9 +13,13 @@ export class MicrosoftAuthUseCases {
     private readonly telemetry: TelemetryTracker,
   ) {}
 
-  async authenticateWithMicrosoft(accessToken: string): Promise<AuthSessionResponse> {
+  async authenticateWithMicrosoft(
+    accessToken: string,
+  ): Promise<AuthSessionResponse> {
     const identity = await this.microsoftValidator.validate(accessToken);
-    const account = await this.accountProvider.getOrCreateFromMicrosoft(identity);
+    const account = await this.accountProvider.getOrCreateFromMicrosoft(
+      identity,
+    );
     const plan = await this.accountProvider.getPlan(account.id);
     const session = await this.sessionIssuer.issueSession({
       accountId: account.id,
@@ -27,6 +35,14 @@ export class MicrosoftAuthUseCases {
         email: account.email,
         displayName: account.display_name || identity.displayName || null,
         plan,
+        accessStatus: plan !== "free"
+          ? "paid"
+          : account.waitlisted_at
+          ? "waitlisted"
+          : "free",
+        ...(account.waitlist_position
+          ? { waitlistPosition: account.waitlist_position }
+          : {}),
       },
     };
   }

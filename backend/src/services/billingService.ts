@@ -15,6 +15,15 @@ import { SupabaseWebhookIdempotencyStore } from "../contexts/wallet-billing/infr
 import { StripePaymentProvider } from "../contexts/wallet-billing/infrastructure/adapters/StripePaymentProvider.ts";
 
 const walletUseCases = new WalletUseCases(new SupabaseWalletRepository());
+const freeAccessCap = Number.parseInt(
+  Deno.env.get("WING_FREE_ACCESS_CAP") ?? "20",
+  10,
+);
+if (!Number.isInteger(freeAccessCap) || freeAccessCap < 0) {
+  throw new Error(
+    "WING_FREE_ACCESS_CAP deve ser um inteiro maior ou igual a zero.",
+  );
+}
 const billingUseCases = new BillingUseCases(
   new SupabaseWebhookIdempotencyStore(),
   new SupabaseSubscriptionRepository(),
@@ -37,6 +46,9 @@ export interface Account {
   microsoft_object_id?: string | null;
   stripe_customer_id?: string | null;
   revoked_at?: string | null;
+  free_access_granted_at?: string | null;
+  waitlisted_at?: string | null;
+  waitlist_position?: number | null;
   created_at: string;
 }
 
@@ -58,6 +70,33 @@ export interface Subscription {
     | "unpaid"
     | "paused";
   current_period_end: string;
+}
+
+async function ensureFreeAccessStatus(account: Account): Promise<Account> {
+  if (account.free_access_granted_at || account.waitlisted_at) return account;
+
+  const { data, error } = await supabase.rpc("claim_free_access", {
+    p_account_id: account.id,
+    p_limit: freeAccessCap,
+  });
+  if (error) throw error;
+
+  const row = (Array.isArray(data) ? data[0] : data) as {
+    access_status: "free" | "waitlisted";
+    waitlist_position: number | null;
+  };
+  return {
+    ...account,
+    free_access_granted_at: row.access_status === "free"
+      ? new Date().toISOString()
+      : null,
+    waitlisted_at: row.access_status === "waitlisted"
+      ? new Date().toISOString()
+      : null,
+    waitlist_position: row.waitlist_position === null
+      ? null
+      : Number(row.waitlist_position),
+  };
 }
 
 export const billingService = {
@@ -84,7 +123,9 @@ export const billingService = {
         updates.display_name = identity.displayName;
       }
 
-      if (Object.keys(updates).length === 0) return existing;
+      if (Object.keys(updates).length === 0) {
+        return await ensureFreeAccessStatus(existing);
+      }
 
       const { data: updated, error } = await supabase
         .from("accounts")
@@ -93,7 +134,7 @@ export const billingService = {
         .select()
         .single();
       if (error) throw error;
-      return updated;
+      return await ensureFreeAccessStatus(updated);
     }
 
     const { data: newAccount, error } = await supabase
@@ -108,7 +149,7 @@ export const billingService = {
       .single();
 
     if (error) throw error;
-    return newAccount;
+    return await ensureFreeAccessStatus(newAccount);
   },
 
   // Conta de login por e-mail (magic link / Supabase Auth) — não toca nos
@@ -122,7 +163,7 @@ export const billingService = {
       .maybeSingle();
 
     if (lookupError) throw lookupError;
-    if (existing) return existing;
+    if (existing) return await ensureFreeAccessStatus(existing);
 
     const { data: newAccount, error } = await supabase
       .from("accounts")
@@ -131,7 +172,7 @@ export const billingService = {
       .single();
 
     if (error) throw error;
-    return newAccount;
+    return await ensureFreeAccessStatus(newAccount);
   },
 
   getAccount: async (accountId: string): Promise<Account> => {
@@ -214,15 +255,31 @@ export const billingService = {
       creditsUsed: number;
       allowed: boolean;
       trialExpired: boolean;
+      waitlisted?: boolean;
     }
   > => {
+    const { data: account, error } = await supabase
+      .from("accounts")
+      .select("free_access_granted_at")
+      .eq("id", accountId)
+      .single();
+    if (error) throw error;
+    if (!account.free_access_granted_at) {
+      return {
+        reservationId: "",
+        creditsUsed: 0,
+        allowed: false,
+        trialExpired: false,
+        waitlisted: true,
+      };
+    }
     return walletUseCases.reserveTrialCredits(
       accountId,
       model,
       credits,
       limit,
       trialDurationSeconds,
-    );
+    ).then((result) => ({ ...result, waitlisted: false }));
   },
 
   settleTrialCredits: async (

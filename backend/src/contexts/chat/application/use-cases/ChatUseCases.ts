@@ -108,7 +108,12 @@ export interface ChatDependencies {
     credits: number,
     limit: number,
     trialDurationSeconds: number,
-  ): Promise<{ reservationId: string; allowed: boolean; trialExpired: boolean }>;
+  ): Promise<{
+    reservationId: string;
+    allowed: boolean;
+    trialExpired: boolean;
+    waitlisted?: boolean;
+  }>;
   settleTrialCredits(
     reservationId: string,
     charge: { credits: number; inputTokens: number; outputTokens: number },
@@ -399,7 +404,9 @@ export class ChatUseCases {
 
       if (!usage.allowed) {
         throw new QuotaExceededError(
-          isTrial && Boolean((usage as { trialExpired?: boolean }).trialExpired),
+          isTrial &&
+            Boolean((usage as { trialExpired?: boolean }).trialExpired),
+          isTrial && Boolean((usage as { waitlisted?: boolean }).waitlisted),
         );
       }
     } catch (error) {
@@ -517,7 +524,9 @@ export class ChatUseCases {
               duration_ms: deps.now() - requestStartedAt,
               phases: {
                 entitlement_ms: entitlementMs,
-                ...(cacheLookupMs > 0 ? { cache_lookup_ms: cacheLookupMs } : {}),
+                ...(cacheLookupMs > 0
+                  ? { cache_lookup_ms: cacheLookupMs }
+                  : {}),
                 credit_reserve_ms: creditReserveMs,
                 provider_stream_ms: providerStreamMs,
                 credit_settle_ms: creditSettleMs,

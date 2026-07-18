@@ -51,6 +51,8 @@ export interface AuthenticatedUser {
   email: string;
   displayName: string | null;
   plan: string;
+  accessStatus: "free" | "waitlisted" | "paid";
+  waitlistPosition?: number;
 }
 
 export interface AuthSession {

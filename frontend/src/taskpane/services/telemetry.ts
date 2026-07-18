@@ -28,7 +28,6 @@ export type ClientTelemetryEventName =
 // catálogo do backend (telemetryCatalog.ts), que valida esse formato.
 export type ClientTelemetryPropertyValue = string | number | Record<string, number>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const track = (
   eventName: ClientTelemetryEventName,
   properties?: Record<string, ClientTelemetryPropertyValue>,

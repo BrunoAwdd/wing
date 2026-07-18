@@ -331,6 +331,8 @@ Entregáveis:
 - [ ] definir no manifesto final URLs, ícones, suporte e SSO definitivos;
 - [x] configurar o build de produção sem `devServer`, HMR e referências de
   desenvolvimento no manifesto gerado;
+- [x] inspecionar o artefato de produção gerado localmente e comprovar ausência
+  de `localhost`, túnel e HMR no manifesto transformado;
 - [ ] inspecionar o artefato implantado e comprovar ausência de `localhost` e HMR;
 - [ ] substituir os domínios temporários pelo domínio oficial no manifesto,
   em `BACKEND_URL` e em `CORS_ALLOWED_ORIGINS`;
@@ -353,17 +355,18 @@ reaproveitando a identidade, o Magic Link e o gateway Stripe existentes.
 
 Entregáveis:
 
-- [ ] criar uma landing page curta, responsiva e acessível no domínio oficial;
+- [x] criar uma landing page curta, responsiva e acessível;
+- [ ] publicar a landing page no domínio oficial;
 - [x] apresentar problema, proposta de valor, principais casos de uso e CTA de cadastro;
 - [x] criar o fluxo `Cadastrar` com e-mail, código de acesso e confirmação da conta;
 - [x] reutilizar os endpoints de Magic Link e a criação de conta existentes,
   sem introduzir uma segunda identidade;
 - [x] aplicar rate limit, mensagens anti-enumeração e tratamento claro de erros;
-- [ ] definir e apresentar planos contratáveis com preço, créditos, limites e
+- [x] definir e apresentar planos contratáveis com preço, créditos, limites e
   diferenças objetivas entre Free, Pro e futuras ofertas para escritórios;
-- [ ] permitir a contratação do plano Pro no próprio site, conectando o CTA ao
+- [x] permitir a contratação dos planos Basic e Pro no próprio site, conectando o CTA ao
   checkout Stripe após cadastro ou autenticação;
-- [ ] tratar retorno, cancelamento e falha do checkout e confirmar no site o
+- [x] tratar retorno, cancelamento e falha do checkout e confirmar no site o
   plano efetivamente ativado;
 - [ ] publicar Termos de Uso e Política de Privacidade após revisão jurídica e
   preenchimento dos dados oficiais;
@@ -373,7 +376,8 @@ Entregáveis:
   instalação do add-in, acesso ao plano Free ou início do checkout;
 - [ ] registrar telemetria mínima do funil: visita, início do cadastro,
   cadastro concluído e checkout iniciado;
-- [ ] validar o fluxo em desktop e mobile, incluindo expiração e reenvio do código.
+- [x] implementar os estados de expiração, erro e reenvio do código de acesso;
+- [ ] validar visualmente o fluxo completo em desktop e mobile.
 
 Fora deste milestone: blog, CMS, área editorial, painel administrativo e site
 institucional extenso.
@@ -382,14 +386,32 @@ Gate de saída: uma pessoa sem conta acessa o domínio oficial, entende o produt
 compara os planos, conclui o cadastro por e-mail, contrata o plano escolhido no
 próprio site e recebe um próximo passo utilizável sem intervenção manual.
 
+## M5.2 - Controle do acesso gratuito e waitlist
+
+Entregáveis:
+
+- [x] limitar atomicamente a concessão gratuita às primeiras 20 contas;
+- [x] preservar as contas existentes por ordem de criação e colocar excedentes
+  na lista de espera durante a migration;
+- [x] permitir que contas em waitlist autentiquem e contratem Basic ou Pro;
+- [x] bloquear o consumo de créditos gratuitos por contas em waitlist no backend;
+- [x] devolver `free`, `waitlisted` ou `paid` na sessão autenticada;
+- [x] informar cadastro, posição na fila e opção de assinatura no site;
+- [ ] aplicar a migration no ambiente de produção e confirmar a distribuição
+  das 20 vagas antes de abrir novos cadastros.
+
+Gate de saída: nenhuma condição de corrida concede a 21ª vaga gratuita, contas
+em espera não consomem créditos e continuam capazes de contratar um plano pago.
+
 ## M6 - Quality gate e piloto pago
 
 Entregáveis:
 
-- [ ] excluir artefatos gerados do lint e zerar erros no código mantido;
+- [x] excluir artefatos gerados do lint e zerar erros no código mantido;
 - [x] criar CI para check, testes, build, lint e validação do manifesto;
-- [ ] corrigir os erros atuais do lint e tornar todos os checks do CI verdes e
-  obrigatórios para merge;
+- [x] corrigir os erros atuais do lint e comprovar localmente todos os jobs do
+  CI verdes: 195 testes, builds do add-in/site e manifesto válido;
+- [ ] tornar todos os checks do CI obrigatórios para merge na proteção da branch;
 - [x] cobrir auth, billing, quota, chat e telemetria com testes de integração;
 - [x] criar roteiro manual para interações reais com o Word;
 - [ ] concluir a revisão de segurança e privacidade iniciada em

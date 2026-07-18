@@ -37,6 +37,8 @@ export function SignupFlow({ plan = null, billingPeriod = "monthly" }: SignupFlo
   const [cooldown, setCooldown] = useState(0);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [session, setSession] = useState<StoredSession | null>(null);
+  const [accessStatus, setAccessStatus] = useState<AuthSession["user"]["accessStatus"]>("free");
+  const [waitlistPosition, setWaitlistPosition] = useState<number | null>(null);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -112,6 +114,8 @@ export function SignupFlow({ plan = null, billingPeriod = "monthly" }: SignupFlo
       saveSession(newSession);
       setSession(newSession);
       setDisplayName(newSession.user.displayName ?? newSession.user.email);
+      setAccessStatus(newSession.user.accessStatus);
+      setWaitlistPosition(newSession.user.waitlistPosition ?? null);
       await goToCheckout(newSession);
     } catch (err) {
       setError(err instanceof SignupApiError ? err.message : "Erro inesperado.");
@@ -166,12 +170,30 @@ export function SignupFlow({ plan = null, billingPeriod = "monthly" }: SignupFlo
   }
 
   if (step === "done") {
+    if (accessStatus === "waitlisted") {
+      return (
+        <div className="signup-card signup-waitlist" role="status">
+          <p className="eyebrow">Lista de espera</p>
+          <h2>Cadastro confirmado</h2>
+          <p>
+            As 20 vagas gratuitas iniciais foram preenchidas. Avisaremos
+            {displayName ? ` ${displayName}` : " você"} por e-mail quando uma nova vaga abrir.
+          </p>
+          {waitlistPosition && (
+            <p className="waitlist-position">Posição atual: <strong>#{waitlistPosition}</strong></p>
+          )}
+          <a className="btn btn-primary" href="#precos">
+            Ver planos para começar agora
+          </a>
+        </div>
+      );
+    }
     return (
       <div className="signup-card" role="status">
         <h2>Conta criada com sucesso</h2>
         <p>
-          Bem-vindo(a), {displayName}. Sua conta Robbie está pronta — o próximo
-          passo é instalar o suplemento no Word para começar a usar.
+          Bem-vindo(a), {displayName}. Você recebeu uma das 20 vagas gratuitas
+          iniciais. O próximo passo é instalar o suplemento no Word.
         </p>
       </div>
     );

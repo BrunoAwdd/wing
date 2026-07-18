@@ -1,5 +1,13 @@
 {
   "nodeModulesDir": "auto",
+  "lint": {
+    "rules": {
+      "exclude": [
+        "no-import-prefix",
+        "require-await"
+      ]
+    }
+  },
   "tasks": {
     "dev": "deno run --watch --allow-net --allow-env --allow-read --allow-write --env src/index.ts",
     "start": "deno run --allow-net --allow-env --allow-read --allow-write --env src/index.ts",

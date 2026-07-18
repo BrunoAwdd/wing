@@ -203,7 +203,9 @@ Deno.test("ChatUseCases.sendMessage: chat_message_completed carrega duration_ms 
     return clock;
   };
 
-  const trackedEvents: Array<{ name: string; properties: Record<string, unknown> }> = [];
+  const trackedEvents: Array<
+    { name: string; properties: Record<string, unknown> }
+  > = [];
 
   const useCases = buildUseCases({
     now,
@@ -214,12 +216,19 @@ Deno.test("ChatUseCases.sendMessage: chat_message_completed carrega duration_ms 
   });
 
   await useCases.startSession("acc-1", "app-1", "doc", []);
-  const stream = await useCases.sendMessage("acc-1", "session-1", "oi", undefined);
+  const stream = await useCases.sendMessage(
+    "acc-1",
+    "session-1",
+    "oi",
+    undefined,
+  );
   for await (const _chunk of stream) {
     // drena o stream pra completar a liquidação de créditos
   }
 
-  const completed = trackedEvents.find((event) => event.name === "chat_message_completed");
+  const completed = trackedEvents.find((event) =>
+    event.name === "chat_message_completed"
+  );
   if (!completed) throw new Error("chat_message_completed não foi disparado");
 
   const duration = completed.properties.duration_ms as number;

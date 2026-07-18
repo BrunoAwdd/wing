@@ -8,16 +8,28 @@ const buildUseCases = () => {
       requestCode: async () => {},
       verifyCode: async (email) => ({ email }),
     },
-    { issueSession: async ({ accountId }) => ({ token: `tok-${accountId}`, expiresAt: "2026-01-01T00:00:00Z" }) },
     {
-      issueRefreshToken: async (accountId) => ({ token: `refresh-${accountId}`, expiresAt: "2026-02-01T00:00:00Z" }),
+      issueSession: async ({ accountId }) => ({
+        token: `tok-${accountId}`,
+        expiresAt: "2026-01-01T00:00:00Z",
+      }),
+    },
+    {
+      issueRefreshToken: async (accountId) => ({
+        token: `refresh-${accountId}`,
+        expiresAt: "2026-02-01T00:00:00Z",
+      }),
       consumeRefreshToken: async () => "acc-1",
       revokeRefreshToken: async (token) => {
         revoked.push(token);
       },
     },
     {
-      getOrCreateFromEmail: async (email) => ({ id: "acc-1", email, display_name: null }),
+      getOrCreateFromEmail: async (email) => ({
+        id: "acc-1",
+        email,
+        display_name: null,
+      }),
       getAccount: async (id) => ({ id, email: "a@b.com", display_name: null }),
       getPlan: async () => "free",
     },
@@ -39,6 +51,33 @@ Deno.test("MagicLinkAuthUseCases.refreshSession: troca refresh token por nova se
   const response = await useCases.refreshSession("old-refresh");
   assertEquals(response.token, "tok-acc-1");
   assertEquals(response.refreshToken, "refresh-acc-1");
+});
+
+Deno.test("MagicLinkAuthUseCases.verifyMagicLink: expõe conta em waitlist e posição", async () => {
+  const useCases = new MagicLinkAuthUseCases(
+    { requestCode: async () => {}, verifyCode: async (email) => ({ email }) },
+    { issueSession: async () => ({ token: "token", expiresAt: "later" }) },
+    {
+      issueRefreshToken: async () => ({ token: "refresh", expiresAt: "later" }),
+      consumeRefreshToken: async () => "acc-wait",
+      revokeRefreshToken: async () => {},
+    },
+    {
+      getOrCreateFromEmail: async (email) => ({
+        id: "acc-wait",
+        email,
+        waitlisted_at: "2026-07-18T00:00:00Z",
+        waitlist_position: 3,
+      }),
+      getAccount: async (id) => ({ id, email: "wait@example.com" }),
+      getPlan: async () => "free",
+    },
+    { trackEvent: () => {} },
+  );
+
+  const response = await useCases.verifyMagicLink("wait@example.com", "123456");
+  assertEquals(response.user.accessStatus, "waitlisted");
+  assertEquals(response.user.waitlistPosition, 3);
 });
 
 Deno.test("MagicLinkAuthUseCases.logout: revoga o refresh token informado", async () => {

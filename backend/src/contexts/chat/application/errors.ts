@@ -55,8 +55,17 @@ export class QualityLevelRequiresUpgradeError extends Error {
 }
 
 export class QuotaExceededError extends Error {
-  constructor(public readonly trialExpired = false) {
-    super(trialExpired ? "trial_expired" : "quota_exceeded");
+  constructor(
+    public readonly trialExpired = false,
+    public readonly waitlisted = false,
+  ) {
+    super(
+      waitlisted
+        ? "waitlisted"
+        : trialExpired
+        ? "trial_expired"
+        : "quota_exceeded",
+    );
     this.name = "QuotaExceededError";
   }
 }

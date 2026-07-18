@@ -380,10 +380,16 @@ export const createChatRouter = (
       } else if (error instanceof QuotaExceededError) {
         ctx.response.status = 402;
         ctx.response.body = {
-          error: error.trialExpired
+          error: error.waitlisted
+            ? "As vagas gratuitas foram preenchidas. Assine um plano para começar agora."
+            : error.trialExpired
             ? "Seu teste grátis expirou. Assine um plano para continuar."
             : "Créditos esgotados. Assine ou faça upgrade para continuar.",
-          code: error.trialExpired ? "trial_expired" : "quota_exceeded",
+          code: error.waitlisted
+            ? "waitlisted"
+            : error.trialExpired
+            ? "trial_expired"
+            : "quota_exceeded",
         };
       } else if (error instanceof ModelProviderUnavailableError) {
         logger.error(
