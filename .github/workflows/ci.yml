@@ -1,5 +1,9 @@
 name: CI
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches: [main]
@@ -26,8 +30,8 @@ jobs:
           JWT_SECRET: ci-only-session-secret-at-least-32-bytes
           SUPABASE_URL: http://127.0.0.1:54321
           SUPABASE_SCHEMA: wing
-          SUPABASE_ANON_KEY: ci-placeholder-anon-key
-          SUPABASE_SERVICE_KEY: ci-placeholder-service-key
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          SUPABASE_SECRET_KEY: sb_secret_ci_placeholder
           MICROSOFT_TOKEN_AUDIENCE: ci-test-audience
 
   frontend:
@@ -44,19 +48,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: install wasm-pack
         run: cargo install wasm-pack --locked
-      # Repo não versiona package-lock.json (ver .gitignore) — `npm ci`
-      # exigiria um lockfile presente, então instala sem lock aqui.
-      - run: npm install
+      - run: npm ci
       - run: npm run lint
       - run: npm run validate
       - run: npm run build:wasm
       - name: build
         run: npm run build
         env:
-          # Domínio placeholder só para a build de CI validar o caminho de
-          # produção do webpack (que exige PROD_APP_DOMAIN) — não é o
-          # domínio real do add-in publicado.
-          PROD_APP_DOMAIN: https://ci-placeholder.invalid
+          # O manifesto de produção é validado contra o domínio publicado.
+          PROD_APP_DOMAIN: https://robbie.awdd.com.br
 
   site:
     name: site (landing + cadastro)
@@ -69,7 +69,57 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
+      - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+
+  containers:
+    name: publish container (${{ matrix.name }})
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, frontend, site]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: backend
+            dockerfile: backend/Dockerfile
+            image: ghcr.io/brunoawdd/wing-backend
+            cache_scope: backend
+            build_args: ""
+          - name: addin
+            dockerfile: frontend/Dockerfile
+            image: ghcr.io/brunoawdd/wing-addin
+            cache_scope: addin
+            build_args: |
+              BACKEND_URL=https://robbie-api.awdd.com.br
+              PROD_APP_DOMAIN=https://robbie.awdd.com.br
+          - name: site
+            dockerfile: site/Dockerfile
+            image: ghcr.io/brunoawdd/wing-site
+            cache_scope: site
+            build_args: |
+              VITE_API_BASE_URL=https://robbie-api.awdd.com.br
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: ${{ matrix.build_args }}
+          tags: |
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.cache_scope }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.cache_scope }}

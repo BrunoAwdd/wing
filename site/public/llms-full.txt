@@ -1,0 +1,32 @@
+# Robbie — informações completas
+
+Robbie é um suplemento para Microsoft Word voltado a pessoas que produzem,
+revisam e analisam documentos. O produto mantém o fluxo de trabalho dentro do
+Word e oferece revisão, reescrita, tradução, resumo e conversa contextual.
+
+## Funcionamento
+
+O usuário seleciona um trecho ou o documento, escolhe uma ação e analisa a
+sugestão antes de aceitá-la. Em traduções, o Robbie pode preservar a disposição
+e aplicar estilos configuráveis no Word. A conversa usa o conteúdo do documento
+como contexto e mantém memória local da sessão.
+
+## Créditos e contratação
+
+Cada transação de IA consome uma carteira única de créditos conforme entrada,
+saída, modelo e uso de cache. O teste oferece 500 créditos por até 30 dias. O
+Basic oferece 3.500 créditos mensais por R$ 24,90/mês ou R$ 249/ano. O Pro
+oferece 8.000 créditos mensais por R$ 49,90/mês ou R$ 499/ano.
+
+## Segurança e limites
+
+O conteúdo é processado para atender à solicitação e não se transforma em um
+repositório separado de documentos. O Robbie não substitui revisão humana nem
+aconselhamento jurídico. Recursos empresariais com organizações e múltiplas
+contas fazem parte de uma fase futura.
+
+## Contato
+
+Suporte e contato comercial: https://robbie.awdd.com.br/contato
+Política de privacidade: https://robbie.awdd.com.br/privacidade
+Termos de uso: https://robbie.awdd.com.br/termos

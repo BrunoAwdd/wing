@@ -1,0 +1,20 @@
+services:
+  backend:
+    image: ghcr.io/brunoawdd/wing-backend:${IMAGE_TAG:-latest}
+    env_file:
+      - ${WING_ENV_FILE:-../.env.production}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3005:3005"
+
+  addin:
+    image: ghcr.io/brunoawdd/wing-addin:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8081:80"
+
+  site:
+    image: ghcr.io/brunoawdd/wing-site:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"

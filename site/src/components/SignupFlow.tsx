@@ -9,6 +9,7 @@ import {
 } from "../api";
 import { saveSession, type StoredSession } from "../lib/session";
 import { startCheckout } from "../lib/checkout";
+import { track } from "../lib/telemetry";
 
 type Step = "email" | "code" | "done" | "redirecting" | "checkout-failed";
 
@@ -76,6 +77,7 @@ export function SignupFlow({ plan = null, billingPeriod = "monthly" }: SignupFlo
     setSubmitting(true);
     try {
       await requestMagicLinkCode(email);
+      track("signup_started");
       setStep("code");
       setCooldown(RESEND_COOLDOWN_SECONDS);
     } catch (err) {
@@ -111,6 +113,7 @@ export function SignupFlow({ plan = null, billingPeriod = "monthly" }: SignupFlo
     setSubmitting(true);
     try {
       const newSession = await verifyMagicLinkCode(email, code);
+      track("signup_completed");
       saveSession(newSession);
       setSession(newSession);
       setDisplayName(newSession.user.displayName ?? newSession.user.email);
@@ -195,6 +198,9 @@ export function SignupFlow({ plan = null, billingPeriod = "monthly" }: SignupFlo
           Bem-vindo(a), {displayName}. Você recebeu uma das 20 vagas gratuitas
           iniciais. O próximo passo é instalar o suplemento no Word.
         </p>
+        <a className="btn btn-primary" href="/instalar">
+          Instalar o suplemento agora
+        </a>
       </div>
     );
   }

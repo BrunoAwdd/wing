@@ -1,0 +1,15 @@
+[Unit]
+Description=Wing backend (Deno/Oak)
+After=network.target
+
+[Service]
+Type=simple
+User=wing
+WorkingDirectory=/opt/wing/backend
+EnvironmentFile=/opt/wing/backend/.env.production
+ExecStart=/usr/local/bin/deno run --allow-net --allow-env --allow-read --allow-write --env src/index.ts
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

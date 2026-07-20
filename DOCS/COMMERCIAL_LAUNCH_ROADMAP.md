@@ -51,17 +51,17 @@ Gate de saída: nenhuma referência executável a `agentsService`, `maestroServi
 
 Entregáveis:
 
-- [x] validar o token Microsoft por assinatura, emissor, audiência e expiração;
-- [x] emitir sessão Wing assinada e curta após o SSO;
+- [x] autenticar por e-mail e código usando Supabase Auth;
+- [x] emitir sessão Wing assinada após a validação do magic link;
 - [x] criar middleware único de sessão para as APIs comerciais;
 - [x] unificar o login das configurações com o token usado por revisão e chat;
 - [x] remover login `admin/password`, tokens dummy em produção e RBAC por header;
 - [x] remover tokens completos de logs e telemetria;
 - [x] definir logout, expiração e renovação controlada.
-- [ ] executar smoke SSO com uma conta real no Word.
+- [ ] executar smoke do magic link com uma conta real no Word.
 
-Implementado em 2026-07-12. A sessão fica somente em memória, é renovada pelo
-Office SSO antes da expiração e não possui refresh token próprio.
+O lançamento usa magic link e sessão Wing persistente com refresh token. O SSO
+Microsoft não faz parte do manifesto nem do fluxo comercial desta versão.
 
 Gate de saída:
 
@@ -328,20 +328,27 @@ Entregáveis:
 
 - [x] preparar geração parametrizada do manifesto de produção e falhar o build
   quando `PROD_APP_DOMAIN` não estiver definido;
-- [ ] definir no manifesto final URLs, ícones, suporte e SSO definitivos;
+- [x] definir no manifesto final o frontend `https://robbie.awdd.com.br`, o
+  suporte em `/contato`, os ícones oficiais e autenticação por magic link, sem SSO;
 - [x] configurar o build de produção sem `devServer`, HMR e referências de
   desenvolvimento no manifesto gerado;
 - [x] inspecionar o artefato de produção gerado localmente e comprovar ausência
   de `localhost`, túnel e HMR no manifesto transformado;
 - [ ] inspecionar o artefato implantado e comprovar ausência de `localhost` e HMR;
-- [ ] substituir os domínios temporários pelo domínio oficial no manifesto,
-  em `BACKEND_URL` e em `CORS_ALLOWED_ORIGINS`;
+- [x] definir os domínios oficiais no manifesto e nos modelos de produção:
+  `https://robbie.awdd.com.br` no frontend e CORS, e
+  `https://robbie-api.awdd.com.br` em `BACKEND_URL`;
 - [x] implementar e testar em modo de produção a rejeição de `localhost`, túnel,
   wildcard e origem `null` no CORS;
-- [ ] validar contra o endpoint implantado que `localhost`, o túnel
-  `supercontext-ui.atdigitalbank.com.br`, wildcard e origem `null` não recebem
-  autorização CORS;
+- [ ] validar contra `https://robbie-api.awdd.com.br` que a origem oficial
+  `https://robbie.awdd.com.br` recebe autorização CORS e que `localhost`, o
+  túnel antigo `supercontext-ui.atdigitalbank.com.br`, wildcard, origem `null`
+  e qualquer domínio fora da allowlist são rejeitados;
 - [x] separar e documentar configurações de dev, staging e produção;
+- [x] empacotar backend, add-in e site em imagens Docker independentes, com
+  health checks, Compose de produção e script idempotente de deploy na VPS;
+- [x] publicar as três imagens no GHCR após os gates da `main`, com tags
+  `latest` e `sha-<commit>`, cache de build e rollback por tag imutável;
 - [ ] validar certificados, secrets, health check e observabilidade;
 - [ ] executar smoke test no Word Windows, Mac e Web.
 
@@ -356,6 +363,8 @@ reaproveitando a identidade, o Magic Link e o gateway Stripe existentes.
 Entregáveis:
 
 - [x] criar uma landing page curta, responsiva e acessível;
+- [x] adicionar SEO técnico e descoberta por LLMs com canonical, Open Graph,
+  JSON-LD, `robots.txt`, sitemap, `llms.txt` e `llms-full.txt`;
 - [ ] publicar a landing page no domínio oficial;
 - [x] apresentar problema, proposta de valor, principais casos de uso e CTA de cadastro;
 - [x] criar o fluxo `Cadastrar` com e-mail, código de acesso e confirmação da conta;

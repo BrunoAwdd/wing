@@ -1,3 +1,4 @@
+import "./config/requiredEnv.ts";
 import { Application, Context, Router } from "./deps.ts";
 import logger from "./services/logger.ts";
 import chatRouter from "./routes/chat.routes.ts";
@@ -33,6 +34,13 @@ const corsOrigins = resolveCorsOrigins(
 
 // --- Inicialização da Aplicação ---
 const app = new Application();
+
+// Oak só loga erros não tratados de middleware no stderr por padrão, sem
+// passar pelo logger estruturado — sem isso um erro em produção não aparece
+// nos logs agregados em JSON.
+app.addEventListener("error", (evt) => {
+  logger.error(`Erro não tratado: ${evt.message}`, evt.error);
+});
 
 // --- Middlewares ---
 
@@ -210,21 +218,9 @@ if (import.meta.main) {
     );
   });
 
-  // Determine if we are in development (NODE_ENV=development)
-  // Treat any environment that is NOT explicitly "production" as development
-  const isDev = !isProduction;
-
-  if (isDev) {
-    // Development: use plain HTTP (no TLS) to avoid proxy EPROTO errors
-    await app.listen({ port, secure: false });
-  } else {
-    // Production / secure mode: use HTTPS with self‑signed certs
-    const sslOptions = {
-      port,
-      secure: true as const,
-      cert: Deno.readTextFileSync("./cert.pem"),
-      key: Deno.readTextFileSync("./key.pem"),
-    };
-    await app.listen(sslOptions);
-  }
+  // Sempre HTTP puro: TLS é responsabilidade do reverse proxy (Caddy) na
+  // frente do processo, tanto em dev (túnel) quanto em produção (VPS). Ver
+  // deploy/Caddyfile e DOCS/DEPLOY_VPS.md — o backend nunca deve terminar
+  // TLS sozinho.
+  await app.listen({ port, secure: false });
 }
