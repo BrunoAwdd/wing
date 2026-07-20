@@ -4,11 +4,11 @@ import { createClient } from "../deps.ts";
 // `db.schema`, porque a API de Auth não passa pelo PostgREST/schema "wing"
 // usado por supabaseClient.ts para as tabelas do produto.
 const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY");
+const supabaseKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error(
-    "SUPABASE_URL and SUPABASE_ANON_KEY must be set for Supabase Auth.",
+    "SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY must be set for Supabase Auth.",
   );
 }
 

@@ -123,6 +123,8 @@ a {
 
 .page .signup-card {
   max-width: 420px;
+  width: 100%;
+  min-width: 0;
   text-align: center;
   align-items: center;
 }
@@ -130,6 +132,25 @@ a {
 .page .signup-card .btn {
   align-self: center;
   margin-top: var(--space-2);
+}
+
+.install-steps {
+  text-align: left;
+  padding-left: var(--space-4);
+  margin: var(--space-2) 0;
+}
+
+.install-steps li {
+  margin-bottom: var(--space-2);
+}
+
+.install-steps code {
+  word-break: break-all;
+}
+
+.install-note {
+  font-size: 0.9em;
+  opacity: 0.8;
 }
 
 .container-reading {

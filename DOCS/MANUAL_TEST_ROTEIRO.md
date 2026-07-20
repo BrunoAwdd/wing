@@ -12,6 +12,11 @@ para justificar os três.
 
 ## 0. Pré-requisitos
 
+- [ ] Checklist de deploy em [`DOCS/DEPLOY_VPS.md`](DEPLOY_VPS.md) (seção 4)
+  verde: backend no ar, certificado real de `robbie-api.awdd.com.br` servido
+  pelo Caddy (não o self-signed de dev), secrets obrigatórios validados no
+  boot, sem erros no `journalctl`. Rodar o roteiro abaixo contra um backend
+  com certificado inválido ou secret faltando só mascara o problema real.
 - [ ] Build de produção gerado com `PROD_APP_DOMAIN` definido
   (`frontend/webpack.config.js` falha o build sem essa variável — ver M5).
 - [ ] Backend acessível no domínio configurado, com `CORS_ALLOWED_ORIGINS`

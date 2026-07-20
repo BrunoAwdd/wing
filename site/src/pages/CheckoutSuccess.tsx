@@ -55,6 +55,9 @@ export function CheckoutSuccess() {
               Sua assinatura foi confirmada. O próximo passo é instalar o
               suplemento no Word para começar a usar.
             </p>
+            <a className="btn btn-primary" href="/instalar">
+              Instalar o suplemento agora
+            </a>
           </>
         )}
         {state === "pending" && (

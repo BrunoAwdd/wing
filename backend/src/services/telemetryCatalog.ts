@@ -60,6 +60,14 @@ const phasesRule = (keys: readonly string[]): PhasesRule => ({
 });
 
 export const TELEMETRY_CATALOG = {
+  // M5.1: funil mínimo do site comercial (visita → cadastro iniciado →
+  // cadastro concluído). "checkout iniciado" não precisa de evento novo —
+  // já existe checkout_started (server), emitido quando a sessão de
+  // checkout do Stripe é criada de verdade, o que cobre tanto o clique
+  // direto nos planos pagos quanto o checkout disparado após o cadastro.
+  site_visited: { source: "client", properties: {} },
+  signup_started: { source: "client", properties: {} },
+  signup_completed: { source: "client", properties: {} },
   panel_opened: { source: "client", properties: {} },
   suggestion_rejected: {
     source: "client",

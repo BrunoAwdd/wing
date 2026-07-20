@@ -1,0 +1,37 @@
+robbie-api.awdd.com.br {
+	reverse_proxy 127.0.0.1:3005
+
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	log {
+		output file /var/log/caddy/robbie-api-access.log
+	}
+}
+
+robbie.awdd.com.br {
+	@addin path /taskpane.html /commands.html /manifest.xml /taskpane.* /commands.* /polyfill.* /react.* /*.wasm /assets/icon-* /assets/model/*
+
+	handle @addin {
+		reverse_proxy 127.0.0.1:8081
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	encode gzip zstd
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	log {
+		output file /var/log/caddy/robbie-site-access.log
+	}
+}

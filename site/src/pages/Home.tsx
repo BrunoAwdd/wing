@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Header } from "../components/Header";
 import { Hero } from "../components/Hero";
 import { ProblemSection } from "../components/ProblemSection";
@@ -10,8 +11,13 @@ import { PricingSection } from "../components/PricingSection";
 import { FaqSection } from "../components/FaqSection";
 import { FinalCtaSection } from "../components/FinalCtaSection";
 import { Footer } from "../components/Footer";
+import { track } from "../lib/telemetry";
 
 export function Home() {
+  useEffect(() => {
+    track("site_visited");
+  }, []);
+
   return (
     <>
       <Header />

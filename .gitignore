@@ -8,5 +8,8 @@ node_modules/
 .agents
 graphify-out
 dist
-package-lock.json
+/package-lock.json
+/backend/package-lock.json
 wing-memory-engine/target/
+*.pem
+frontend/assets/svg/*.ai
