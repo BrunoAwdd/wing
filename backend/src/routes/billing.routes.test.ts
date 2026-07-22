@@ -7,6 +7,7 @@ import {
   type BillingRouteDependencies,
   createBillingRouter,
 } from "./billing.routes.ts";
+import { AccountNotFoundError } from "../services/billingService.ts";
 import { StripeSignatureError } from "../services/stripeService.ts";
 import { wingSessionService } from "../services/wingSessionService.ts";
 
@@ -182,6 +183,31 @@ Deno.test("Billing /checkout: falha da Stripe retorna 500 controlado", async () 
   );
 
   assertEquals(response?.status, 500);
+});
+
+Deno.test("Billing /checkout: sessão de conta removida retorna 401 para o site refazer o login", async () => {
+  const token = await withSession();
+  const app = createTestApp({
+    getAccount: async () => {
+      throw new AccountNotFoundError();
+    },
+  });
+  const response = await app.handle(
+    new Request("http://localhost/api/v1/billing/checkout", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan: "basic", billingPeriod: "yearly" }),
+    }),
+  );
+
+  assertEquals(response?.status, 401);
+  assertEquals(await response!.json(), {
+    error:
+      "Sua sessão não corresponde mais a uma conta ativa. Entre novamente.",
+  });
 });
 
 Deno.test("Billing /portal: conta sem stripe_customer_id retorna 400 controlado", async () => {

@@ -53,6 +53,13 @@ export interface Account {
   created_at: string;
 }
 
+export class AccountNotFoundError extends Error {
+  constructor() {
+    super("Conta Wing não encontrada para a sessão informada.");
+    this.name = "AccountNotFoundError";
+  }
+}
+
 // União completa dos status que a Stripe pode enviar (RFC 015 §8) — só
 // "trialing"/"active" contam como Pro em getEntitlement, o resto é Free.
 export interface Subscription {
@@ -181,9 +188,10 @@ export const billingService = {
       .from("accounts")
       .select("*")
       .eq("id", accountId)
-      .single();
+      .maybeSingle();
 
     if (error) throw error;
+    if (!data) throw new AccountNotFoundError();
     return data;
   },
 

@@ -1,6 +1,10 @@
 import { Router } from "../deps.ts";
 import { supabase } from "../services/supabaseClient.ts";
-import { type Account, billingService } from "../services/billingService.ts";
+import {
+  type Account,
+  AccountNotFoundError,
+  billingService,
+} from "../services/billingService.ts";
 import { type StripeSubscription } from "../services/stripeService.ts";
 import {
   type BillingPeriod,
@@ -240,6 +244,14 @@ export const createBillingRouter = (
       ctx.response.status = 200;
       ctx.response.body = { url };
     } catch (error) {
+      if (error instanceof AccountNotFoundError) {
+        ctx.response.status = 401;
+        ctx.response.body = {
+          error:
+            "Sua sessão não corresponde mais a uma conta ativa. Entre novamente.",
+        };
+        return;
+      }
       console.error("[Billing] Falha ao criar checkout:", error);
       dependencies.trackEvent(
         "checkout_failed",
