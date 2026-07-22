@@ -1,6 +1,6 @@
 alter table wing.accounts
-  add column free_access_granted_at timestamptz,
-  add column waitlisted_at timestamptz;
+  add column if not exists free_access_granted_at timestamptz,
+  add column if not exists waitlisted_at timestamptz;
 
 with ranked_accounts as (
   select id, row_number() over (order by created_at, id) as position
@@ -10,14 +10,27 @@ update wing.accounts as accounts
 set free_access_granted_at = case when ranked.position <= 20 then accounts.created_at end,
     waitlisted_at = case when ranked.position > 20 then accounts.created_at end
 from ranked_accounts as ranked
-where ranked.id = accounts.id;
+where ranked.id = accounts.id
+  and accounts.free_access_granted_at is null
+  and accounts.waitlisted_at is null;
 
-alter table wing.accounts
-  add constraint accounts_free_access_state_check check (
-    not (free_access_granted_at is not null and waitlisted_at is not null)
-  );
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'accounts_free_access_state_check'
+      and conrelid = 'wing.accounts'::regclass
+  ) then
+    alter table wing.accounts
+      add constraint accounts_free_access_state_check check (
+        not (free_access_granted_at is not null and waitlisted_at is not null)
+      );
+  end if;
+end;
+$$;
 
-create function wing.claim_free_access(
+create or replace function wing.claim_free_access(
   p_account_id uuid,
   p_limit int
 ) returns table(access_status text, waitlist_position bigint)

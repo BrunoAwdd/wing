@@ -5,7 +5,7 @@ create extension if not exists "uuid-ossp";
 create schema wing;
 
 create table wing.accounts (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   email text unique not null,
   stripe_customer_id text unique,
   display_name text,
@@ -26,7 +26,7 @@ create unique index accounts_microsoft_identity_uidx
   where microsoft_tenant_id is not null and microsoft_object_id is not null;
 
 create table wing.subscriptions (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete cascade not null,
   external_subscription_id text unique not null,
   provider text not null check (provider in ('stripe', 'microsoft')),
@@ -49,7 +49,7 @@ create table wing.subscriptions (
 );
 
 create table wing.usage_monthly (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete cascade not null,
   yyyymm int not null,
   requests_count int not null default 0,
@@ -67,7 +67,7 @@ create table wing.webhook_events (
 );
 
 create table wing.support_requests (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   name text not null check (char_length(name) between 1 and 120),
   email text not null check (char_length(email) between 3 and 254),
   category text not null check (category in ('support', 'commercial', 'privacy', 'billing', 'other')),
@@ -79,7 +79,7 @@ create table wing.support_requests (
 );
 
 create table wing.telemetry_events (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete set null,
   event_name text not null check (event_name in (
     'panel_opened',
@@ -121,7 +121,7 @@ create table wing.telemetry_events (
 );
 
 create table wing.refresh_tokens (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default extensions.uuid_generate_v4(),
   account_id uuid references wing.accounts(id) on delete cascade not null,
   token_hash text unique not null,
   expires_at timestamptz not null,

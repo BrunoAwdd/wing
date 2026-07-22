@@ -1,5 +1,5 @@
-create table wing.support_requests (
-  id uuid primary key default uuid_generate_v4(),
+create table if not exists wing.support_requests (
+  id uuid primary key default extensions.uuid_generate_v4(),
   name text not null check (char_length(name) between 1 and 120),
   email text not null check (char_length(email) between 3 and 254),
   category text not null check (category in ('support', 'commercial', 'privacy', 'billing', 'other')),
@@ -10,7 +10,7 @@ create table wing.support_requests (
   updated_at timestamptz not null default now()
 );
 
-create index support_requests_status_created_at_idx
+create index if not exists support_requests_status_created_at_idx
   on wing.support_requests(status, created_at desc);
 
 alter table wing.support_requests enable row level security;
