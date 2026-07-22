@@ -222,5 +222,5 @@ if (import.meta.main) {
   // frente do processo, tanto em dev (túnel) quanto em produção (VPS). Ver
   // deploy/Caddyfile e DOCS/DEPLOY_VPS.md — o backend nunca deve terminar
   // TLS sozinho.
-  await app.listen({ port, secure: false });
+  await app.listen({ hostname: "0.0.0.0", port, secure: false });
 }
