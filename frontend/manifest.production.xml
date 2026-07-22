@@ -5,7 +5,7 @@
 	xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
 	xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="TaskPaneApp">
 	<Id>cff7175e-441b-48a7-a99d-445d46923451</Id>
-	<Version>1.0.0.0</Version>
+	<Version>1.0.0.1</Version>
 	<ProviderName>AWDD</ProviderName>
 	<DefaultLocale>pt-BR</DefaultLocale>
 	<DisplayName DefaultValue="Wing"/>
@@ -20,7 +20,7 @@
 		<Host Name="Document"/>
 	</Hosts>
 	<DefaultSettings>
-		<SourceLocation DefaultValue="https://robbie.awdd.com.br/taskpane.html"/>
+		<SourceLocation DefaultValue="https://robbie.awdd.com.br/taskpane.html?v=1.0.0.1"/>
 	</DefaultSettings>
 	<Permissions>ReadWriteDocument</Permissions>
 	<VersionOverrides
@@ -73,8 +73,8 @@
 			</bt:Images>
 			<bt:Urls>
 				<bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://robbie.awdd.com.br"/>
-				<bt:Url id="Commands.Url" DefaultValue="https://robbie.awdd.com.br/commands.html"/>
-				<bt:Url id="Taskpane.Url" DefaultValue="https://robbie.awdd.com.br/taskpane.html"/>
+				<bt:Url id="Commands.Url" DefaultValue="https://robbie.awdd.com.br/commands.html?v=1.0.0.1"/>
+				<bt:Url id="Taskpane.Url" DefaultValue="https://robbie.awdd.com.br/taskpane.html?v=1.0.0.1"/>
 			</bt:Urls>
 			<bt:ShortStrings>
 				<bt:String id="GetStarted.Title" DefaultValue="Wing está pronto"/>
