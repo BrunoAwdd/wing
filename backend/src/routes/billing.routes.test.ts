@@ -241,7 +241,7 @@ Deno.test("Billing /webhook: assinatura inválida retorna 400", async () => {
 Deno.test("Billing /webhook: evento de assinatura válido sincroniza e retorna 200", async () => {
   let syncedAccountId: string | undefined;
   const app = createTestApp({
-    constructWebhookEvent: () => ({
+    constructWebhookEvent: async () => ({
       id: "evt_1",
       type: "customer.subscription.updated",
       data: {

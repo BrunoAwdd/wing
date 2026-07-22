@@ -56,6 +56,33 @@ export class StripeConfigError extends Error {
   }
 }
 
+interface StripeWebhookVerifier {
+  constructEventAsync: (
+    rawBody: string,
+    signatureHeader: string,
+    secret: string,
+  ) => Promise<Stripe.Event>;
+}
+
+export const constructStripeWebhookEvent = async (
+  verifier: StripeWebhookVerifier,
+  rawBody: string,
+  signatureHeader: string,
+  secret: string,
+): Promise<Stripe.Event> => {
+  try {
+    // Deno uses Stripe's WebCrypto provider, which cannot verify webhook
+    // signatures through the synchronous constructEvent() API.
+    return await verifier.constructEventAsync(
+      rawBody,
+      signatureHeader,
+      secret,
+    );
+  } catch {
+    throw new StripeSignatureError();
+  }
+};
+
 // Lazy: instanciar o client no import falha se STRIPE_SECRET_KEY estiver
 // vazio (o SDK v17 rejeita string vazia), o que quebraria qualquer módulo
 // que importe stripeService.ts — inclusive em testes/ambientes sem chave
@@ -155,18 +182,43 @@ export const stripeService = {
 
   // Corpo BRUTO (bytes/string), nunca JSON já parseado — a assinatura é
   // calculada sobre os bytes exatos que a Stripe enviou.
-  constructWebhookEvent: (rawBody: string, signatureHeader: string) => {
-    try {
-      return getStripeClient().webhooks.constructEvent(
-        rawBody,
-        signatureHeader,
-        webhookSecret,
-      );
-    } catch {
-      throw new StripeSignatureError();
-    }
+  constructWebhookEvent: async (
+    rawBody: string,
+    signatureHeader: string,
+  ): Promise<Stripe.Event> => {
+    return await constructStripeWebhookEvent(
+      getStripeClient().webhooks,
+      rawBody,
+      signatureHeader,
+      webhookSecret,
+    );
   },
 };
 
 export type StripeSubscription = Stripe.Subscription;
 export type StripeEvent = Stripe.Event;
+
+type SubscriptionItemWithPeriodEnd = Stripe.SubscriptionItem & {
+  current_period_end?: number;
+};
+
+export const resolveSubscriptionCurrentPeriodEnd = (
+  subscription: StripeSubscription,
+): number => {
+  // Stripe API 2026-06-24.dahlia moved the billing period from the
+  // subscription to each subscription item. Keep accepting older webhook
+  // payloads while deployments and webhook endpoints migrate API versions.
+  const legacyPeriodEnd = subscription.current_period_end;
+  const itemPeriodEnd = (
+    subscription.items.data[0] as SubscriptionItemWithPeriodEnd | undefined
+  )?.current_period_end;
+  const currentPeriodEnd = legacyPeriodEnd ?? itemPeriodEnd;
+
+  if (!Number.isInteger(currentPeriodEnd) || currentPeriodEnd <= 0) {
+    throw new Error(
+      `[Billing] Assinatura Stripe ${subscription.id} não informou current_period_end.`,
+    );
+  }
+
+  return currentPeriodEnd;
+};

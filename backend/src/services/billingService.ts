@@ -3,6 +3,7 @@ import { track } from "./telemetry.ts";
 import type { TelemetryEventName } from "./telemetryCatalog.ts";
 import {
   resolvePlanFromPriceId,
+  resolveSubscriptionCurrentPeriodEnd,
   type StripeSubscription,
 } from "./stripeService.ts";
 import type { MicrosoftIdentity } from "./microsoftIdentityService.ts";
@@ -371,7 +372,7 @@ export const billingService = {
       stripeSubscription.id,
       accountId,
       stripeSubscription.status as Subscription["status"],
-      stripeSubscription.current_period_end,
+      resolveSubscriptionCurrentPeriodEnd(stripeSubscription),
       plan,
     );
   },

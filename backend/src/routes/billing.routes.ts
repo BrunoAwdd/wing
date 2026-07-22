@@ -48,7 +48,10 @@ export interface BillingRouteDependencies {
   getOrCreateStripeCustomer: (account: Account) => Promise<string>;
   createCheckoutSession: typeof stripeService.createCheckoutSession;
   createPortalSession: typeof stripeService.createPortalSession;
-  constructWebhookEvent: typeof stripeService.constructWebhookEvent;
+  constructWebhookEvent: (
+    rawBody: string,
+    signatureHeader: string,
+  ) => StripeEvent | Promise<StripeEvent>;
   recordWebhookEventIfNew: typeof billingService.recordWebhookEventIfNew;
   removeWebhookEvent: typeof billingService.removeWebhookEvent;
   syncSubscriptionFromStripe: typeof billingService.syncSubscriptionFromStripe;
@@ -283,7 +286,7 @@ export const createBillingRouter = (
 
     let event: StripeEvent;
     try {
-      event = dependencies.constructWebhookEvent(rawBody, signature);
+      event = await dependencies.constructWebhookEvent(rawBody, signature);
     } catch (error) {
       if (error instanceof StripeSignatureError) {
         ctx.response.status = 400;

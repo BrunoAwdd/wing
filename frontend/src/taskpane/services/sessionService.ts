@@ -5,7 +5,7 @@ const BACKEND_URL = process.env.BACKEND_URL || "";
 export interface WingSessionUser {
   email: string;
   displayName: string | null;
-  plan: "free" | "pro" | "team" | "enterprise";
+  plan: "free" | "basic" | "pro" | "team" | "enterprise";
 }
 
 export interface WingSession {
@@ -25,7 +25,7 @@ export class WingAuthenticationError extends Error {
   }
 }
 
-const VALID_PLANS: WingSessionUser["plan"][] = ["free", "pro", "team", "enterprise"];
+const VALID_PLANS: WingSessionUser["plan"][] = ["free", "basic", "pro", "team", "enterprise"];
 
 const readError = async (response: Response): Promise<string> => {
   try {

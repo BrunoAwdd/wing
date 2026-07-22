@@ -3,7 +3,7 @@
 const BACKEND_URL = process.env.BACKEND_URL || "";
 
 export interface WingBillingStatus {
-  plan: "free" | "pro" | "team" | "enterprise";
+  plan: "free" | "basic" | "pro" | "team" | "enterprise";
   status: string;
   usage: {
     requestsCount: number;

@@ -81,6 +81,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
   const [billingStatus, setBillingStatus] = React.useState<WingBillingStatus | null>(null);
   const [billingError, setBillingError] = React.useState<string | null>(null);
   const [billingActionLoading, setBillingActionLoading] = React.useState(false);
+  const activePlan = billingStatus?.plan ?? user.plan;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -175,7 +176,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               </Text>
             )}
             <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-              Plano: {user.plan.toUpperCase()}
+              Plano: {activePlan.toUpperCase()}
             </Text>
             {billingStatus && (
               <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
@@ -191,7 +192,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({
               {billingError}
             </Text>
           )}
-          {user.plan === "free" ? (
+          {activePlan === "free" ? (
             <Button appearance="primary" disabled={billingActionLoading} onClick={() => void handleUpgrade()}>
               Assinar Wing Pro
             </Button>
